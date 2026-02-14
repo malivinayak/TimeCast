@@ -2,7 +2,7 @@
 
 A browser-based action game where **time moves only when you move**.
 
-Inspired by SUPERHOT. Built with vanilla HTML, CSS, and JavaScript — no libraries, no assets, one file.
+Built with vanilla HTML, CSS, and JavaScript — no libraries, no assets, one file.
 
 ---
 
@@ -43,7 +43,7 @@ The game has x levels. We won't spoil them here — just play.
 
 ## Credits
 
-Created by **malivinayak** using [claude.ai](https://claude.ai).
+Invented by **malivinayak** and Developed by [claude.ai](https://claude.ai).
 
 ---
 
