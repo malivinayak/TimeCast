@@ -8,7 +8,10 @@ Built with vanilla HTML, CSS, and JavaScript — no libraries, no assets, one fi
 
 ## How to Play
 
-Open `index.html` in any modern browser. That's it.
+3D version: Open `index.html` in any modern browser. That's it.
+          : [Play here](http://malivinayak.com/TimeCast)
+2D version: Open `v1.html` in any modern browser. That's it.
+          : [Play here](http://malivinayak.com/TimeCast/v1)
 
 ---
 
