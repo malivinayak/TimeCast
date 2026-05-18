@@ -1,17 +1,20 @@
-# TIMECAST
+# TIMECAST BETA 
 
 A browser-based action game where **time moves only when you move**.
 
 Built with vanilla HTML, CSS, and JavaScript — no libraries, no assets, one file.
 
+> NOTE: Game is in BETA so BUGS are present you can report in issue section.
+
 ---
 
 ## How to Play
 
-3D version: Open `index.html` in any modern browser. That's it.
-          : [Play here](http://malivinayak.com/TimeCast)
-2D version: Open `v1.html` in any modern browser. That's it.
-          : [Play here](http://malivinayak.com/TimeCast/v1)
+2D version: Open `index.html` or `v1_2D` in any modern browser. That's it.
+          : [Play here](http://malivinayak.com/TimeCast/) OR [v1 Play here](http://malivinayak.com/TimeCast/prev_versions/v1_2D.html)
+3D version: Open `v1_3D.html` in any modern browser. That's it.
+          : [Play here](http://malivinayak.com/TimeCast/prev_versions/v1_3D.html)
+
 
 ---
 
