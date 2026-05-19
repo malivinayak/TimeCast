@@ -306,12 +306,6 @@ let recordBuffer = []; // rolling player position buffer for "time echo" replay
 const ARENA = { w: 2200, h: 1400 };
 
 let player, bullets, enemies, particles, glassWalls, props, walls, shockwaves, debris, ragdolls, decoys, hitMarks;
-/* EXPANSION SYSTEMS — three reusable subsystems backing the new content.
-   `zones`   : time-pools (slow forced-time bubbles), weave-mines, sentinel-beams
-   `tethers` : binder link from enemy to player; persists until LOS broken / dashed
-   `gravity` : soft pulls applied during update; emptied each frame
-*/
-let zones = [], tethers = [], gravityWells = [];
 
 /* ============================ SAVE SYSTEM ==================================
    localStorage-backed progress + preferences. Defensive parse: corrupt JSON
@@ -414,20 +408,7 @@ const WAVES = [
   {name:'SWARM', enemies:[['splitter',2],['dodger',1]], desc:'KILL THEM TWICE'},
   {name:'PHANTOM', enemies:[['phantom',1]], desc:'STRIKE WHEN IT FLICKERS', boss:true},
   {name:'PARADOX', enemies:[['phaser',2],['tactician',1],['sniper',1]], desc:'STILLNESS FEEDS THEM'},
-  {name:'OMEGA', enemies:[['omega',1]], desc:'END OF ALL TIME', boss:true},
-  /* -------- EXPANSION 13–22 --------
-     Each wave introduces ONE new mechanic, then later waves recombine them.
-     The ramp is: tool → tool+counter → boss that weaponises the tool → composite. */
-  {name:'TRACE',       enemies:[['tracker',2]],                                 desc:'BULLETS THAT REMEMBER YOU'},
-  {name:'WEAVE',       enemies:[['weaver',2],['shooter',1]],                    desc:'PLANT · ESCAPE · REPEAT'},
-  {name:'HOROLOGIST',  enemies:[['horologist',1]],                              desc:'TIME POOLS BETRAY YOU', boss:true},
-  {name:'MIRRORED',    enemies:[['mirror',2],['dodger',1]],                     desc:'IT MOVES WHEN YOU MOVE'},
-  {name:'METRONOME',   enemies:[['pulse',3],['sniper',1]],                      desc:'KEEP THE BEAT'},
-  {name:'CORE',        enemies:[['gravcore',1]],                                desc:'PULLED INTO THE LIGHT', boss:true},
-  {name:'CHAINS',      enemies:[['binder',2],['rusher',1]],                     desc:'BREAK SIGHT TO BREAK THE LINK'},
-  {name:'REVENANT',    enemies:[['revenant',1]],                                desc:'BANK YOUR SHOTS', boss:true},
-  {name:'CONVERGENCE', enemies:[['tracker',1],['weaver',1],['mirror',1],['sentinel',1]], desc:'EVERY LESSON, AT ONCE'},
-  {name:'AION',        enemies:[['aion',1]],                                    desc:'YOU ARE THE LAST CLOCK', boss:true, final:true}
+  {name:'OMEGA', enemies:[['omega',1]], desc:'END OF ALL TIME', boss:true, final:true}
 ];
 
 function startWave(idx){
@@ -435,7 +416,6 @@ function startWave(idx){
   const W = WAVES[idx]; if (!W){ STATE='victory'; victoryAnim = 0; showCenter('VICTORY', 'TIME IS YOURS', ''); return; }
   enemies = []; bullets = []; particles = [];
   shockwaves = []; debris = []; ragdolls = []; decoys = []; hitMarks = [];
-  zones = []; tethers = []; gravityWells = [];
   recordBuffer = []; echoes = []; echoReady = true; echoCooldown = 0;
   buildArena();
   player.x = ARENA.w/2; player.y = ARENA.h - 240; player.vx=0; player.vy=0; player.iframes = 1.0;
@@ -464,13 +444,8 @@ function randSpawnFar(target){
   return {x: 200, y: 200};
 }
 
-/* ============================ ENEMIES =======================================
-   EXPANSION (waves 13–22): six new minions + four new bosses, all built on
-   three reusable subsystems — homing seekers, time-zones, and gravity wells —
-   declared elsewhere in this file. Each archetype owns ONE psychological lever
-   (prediction, area denial, momentum punishment, rhythm, visibility, etc).
-   ========================================================================== */
-const BOSS_TYPES = ['warden','chronarch','phantom','omega','horologist','gravcore','revenant','aion'];
+/* ============================ ENEMIES ======================================= */
+const BOSS_TYPES = ['warden','chronarch','phantom','omega'];
 function spawnEnemy(type, x, y){
   const base = {
     x, y, vx:0, vy:0, r:13, angle:0, alive:true, hp:1, type,
@@ -498,78 +473,31 @@ function spawnEnemy(type, x, y){
   else if (type==='phaser'){
     Object.assign(base, {speed:60, hp:2, maxHp:2, fireRate: 1.6, r:14, phaser:true, phase:0});
   }
-  /* ---- TRACKER: prediction pressure. Fires homing seekers in a brief burst
-     after a 0.65s lock telegraph. Counters: dash, LOS, lead-into-wall.   ---- */
-  else if (type==='tracker'){
-    Object.assign(base, {speed:80, hp:2, maxHp:2, fireRate:2.6, r:13,
-      locking:false, lockT:0, retreatT:0});
-  }
-  /* ---- WEAVER: area denial. Plants delayed line-mines that detonate as a
-     wall of energy. Forces the player to commit to a route.             ---- */
-  else if (type==='weaver'){
-    Object.assign(base, {speed:55, hp:2, maxHp:2, fireRate:2.4, r:13});
-  }
-  /* ---- MIRROR: momentum punishment. Copies the player's velocity with a
-     0.5s delay. Fires when the player fires. Standing still = safety.   ---- */
-  else if (type==='mirror'){
-    Object.assign(base, {speed:0, hp:2, maxHp:2, fireRate:0.6, r:13,
-      mirrorBuf:[], fireQueue:0, fireCdShoot:0});
-  }
-  /* ---- PULSE: rhythm reading. Stationary. Emits a radial wave on a steady
-     2.0s tempo, telegraphed by an inner ring. The beat is a metronome.  ---- */
-  else if (type==='pulse'){
-    Object.assign(base, {speed:0, hp:3, maxHp:3, fireRate:0, r:15,
-      beatPeriod:2.0, beatT: rnd(0,2.0)});
-  }
-  /* ---- SENTINEL: visibility pressure. Stationary. Charges a static beam
-     after locking the player's CURRENT line. Beam fires on a deterministic
-     timer — clear the line before it commits.                           ---- */
-  else if (type==='sentinel'){
-    Object.assign(base, {speed:0, hp:2, maxHp:2, fireRate:0, r:14,
-      charging:false, chargeT:0, beamLockAngle:0});
-  }
-  /* ---- BINDER: visibility pressure. Fires a slow tether bolt; if it
-     connects, the player takes a tiny tick of damage every 0.8s while linked.
-     Tether breaks if LOS is broken or if the player dashes through it.  ---- */
-  else if (type==='binder'){
-    Object.assign(base, {speed:70, hp:2, maxHp:2, fireRate:3.0, r:13,
-      hasTether:false});
-  }
   else if (BOSS_TYPES.includes(type)){
     const cfg = {
-      warden:    {hp:14, r:28, speed:42, fireRate:1.8, phases:3},
-      chronarch: {hp:18, r:26, speed:55, fireRate:2.2, phases:3},
-      phantom:   {hp:16, r:24, speed:0,  fireRate:1.6, phases:3},
-      omega:     {hp:28, r:32, speed:48, fireRate:2.0, phases:4},
-      // EXPANSION BOSSES — each takes one minion mechanic and weaponises it
-      horologist:{hp:20, r:28, speed:60, fireRate:2.0, phases:3},
-      gravcore:  {hp:22, r:30, speed:24, fireRate:1.6, phases:3},
-      revenant:  {hp:12, r:26, speed:55, fireRate:1.8, phases:3},
-      aion:      {hp:36, r:34, speed:55, fireRate:1.6, phases:4}
+      warden:   {hp:14, r:28, speed:42, fireRate:1.8, phases:3},
+      chronarch:{hp:18, r:26, speed:55, fireRate:2.2, phases:3},
+      phantom:  {hp:16, r:24, speed:0,  fireRate:1.6, phases:3},
+      omega:    {hp:28, r:32, speed:48, fireRate:2.0, phases:4}
     }[type];
     Object.assign(base, {
       speed:cfg.speed, hp:cfg.hp, maxHp:cfg.hp, r:cfg.r, fireRate:cfg.fireRate,
       isBoss:true, bossType:type,
       phase:1, maxPhase:cfg.phases,
       attackPattern:0, attackT:1.5, moveT:0, tx:x, ty:y,
+      // warden
       nodes:[], shielded:false, shieldRespawnT:0,
+      // chronarch
       laserActive:false, laserT:0, laserAngle:0,
       forcedTimeT:0, forcedTime:0.4,
+      // phantom
       teleportCd:1.5, teleportWindup:0, vulnerable:false, vulnerableT:0, decoys:[],
+      // omega
       omegaLaserActive:false, omegaLaserT:0, omegaLaserAngle:0,
-      summonCd: 8.0,
-      // Horologist
-      zoneCd:1.4,
-      // Gravcore
-      pullStrength:0, swarmCd:2.0,
-      // Revenant: only damaged by ricocheted player bullets
-      ricochetOnly:true, vulnFlash:0,
-      // Aion: composite boss
-      aionMode:0, aionModeT:5.0
+      summonCd: 8.0
     });
-    if (type==='warden')   spawnWardenNodes(base);
+    if (type==='warden') spawnWardenNodes(base);
     if (type==='phantom'){ base.shielded = true; }
-    if (type==='revenant'){ base.shielded = false; /* never blocks bullets; just immune to direct shots */ }
   }
   enemies.push(base);
 }
@@ -728,10 +656,6 @@ function updateBossEntity(e, dt, tdt, toP, sees){
   else if (e.bossType==='chronarch') updateChronarch(e, dt, tdt, toP, sees);
   else if (e.bossType==='phantom') updatePhantom(e, dt, tdt, toP, sees);
   else if (e.bossType==='omega') updateOmega(e, dt, tdt, toP, sees);
-  else if (e.bossType==='horologist') updateHorologist(e, dt, tdt, toP, sees);
-  else if (e.bossType==='gravcore') updateGravCore(e, dt, tdt, toP, sees);
-  else if (e.bossType==='revenant') updateRevenant(e, dt, tdt, toP, sees);
-  else if (e.bossType==='aion') updateAion(e, dt, tdt, toP, sees);
 }
 
 function spawnAdd(type, x, y){
@@ -927,326 +851,15 @@ function updateOmega(e, dt, tdt, toP, sees){
   }
 }
 
-/* ============================ EXPANSION BOSSES =============================
-   Four new bosses, each owning one of the new minion systems. Each boss
-   defines its own attackPattern cycle and phase transitions inherited from
-   the generic updateBossEntity scaffolding.
-   ========================================================================== */
-
-/* HOROLOGIST — drops slow time-pools where forced-time = 0.45 and fires
-   lavender homing seekers in escalating patterns. Phase 2 summons a mirror
-   ally. Phase 3 paints two zones at once. */
-function updateHorologist(e, dt, tdt, toP, sees){
-  e.zoneCd = (e.zoneCd||1.4) - tdt;
-  e.attackT -= tdt;
-  if (e.zoneCd <= 0 && sees){
-    e.zoneCd = Math.max(2.6, 5.0 - e.phase*0.7);
-    // Plant the zone where the player is heading, not where they are
-    const lead = Math.hypot(player.vx, player.vy) * 0.35;
-    const ang = Math.atan2(player.vy, player.vx) || 0;
-    const zx = clamp(player.x + Math.cos(ang)*lead, 80, ARENA.w-80);
-    const zy = clamp(player.y + Math.sin(ang)*lead, 80, ARENA.h-80);
-    plantTimeZone(zx, zy, 120, 5.0, 0.42);
-    if (e.phase >= 3) plantTimeZone(player.x + rnd(-160,160), player.y + rnd(-160,160), 100, 4.2, 0.42);
-    if (throttle('zonePlant', 180)) tone(180, 0.30, 'sine', 0.05);
-  }
-  if (e.attackT <= 0 && sees){
-    e.attackT = Math.max(1.0, 2.6 - e.phase*0.4);
-    const p = (e.attackPattern++) % 3;
-    if (p===0){
-      // Aimed seeker pair
-      for (let k=-1;k<=1;k+=2){
-        const a = toP + k*0.18;
-        fireSeeker(e.x+Math.cos(a)*30, e.y+Math.sin(a)*30, a, 270 + e.phase*15, 3.6, 2.0 + e.phase*0.2);
-      }
-    } else if (p===1){
-      // Slow ring of straight bullets — lets seekers carry the threat
-      const c = 8 + e.phase*2;
-      for (let i=0;i<c;i++){ const a = (TAU/c)*i + e.attackPattern*0.07;
-        fireBullet('enemy', e.x+Math.cos(a)*30, e.y+Math.sin(a)*30, Math.cos(a)*240, Math.sin(a)*240, {color:'#9c8fd6'}); }
-    } else {
-      // Seeker ring — 4 at phase 1, 6 at phase 3
-      const c = 3 + e.phase;
-      for (let i=0;i<c;i++){ const a = (TAU/c)*i + e.attackPattern*0.1;
-        fireSeeker(e.x+Math.cos(a)*30, e.y+Math.sin(a)*30, a, 250, 3.4, 1.8); }
-    }
-    Snd.enemyShoot();
-  }
-}
-
-/* CORE / GRAVCORE — emits a gentle radial pull and fires homing-seeker
-   swarms. The pull falls off with distance — close approach is dangerous,
-   but a perpendicular dash always escapes. Phase 3 also drops a beat-shockwave. */
-function updateGravCore(e, dt, tdt, toP, sees){
-  // Slow drift toward arena centre
-  const cx = ARENA.w/2, cy = ARENA.h/2;
-  const ca = Math.atan2(cy - e.y, cx - e.x);
-  e.vx = Math.cos(ca) * e.speed * 0.4;
-  e.vy = Math.sin(ca) * e.speed * 0.4;
-  // Re-emit gravity well — applied to player each frame
-  const pullR = 420 + e.phase*40;
-  const pullS = 160 + e.phase*60;
-  addGravity(e.x, e.y, pullS, pullR);
-
-  e.swarmCd = (e.swarmCd||2.0) - tdt;
-  if (e.swarmCd <= 0 && sees){
-    e.swarmCd = Math.max(1.6, 3.6 - e.phase*0.5);
-    const N = 5 + e.phase*2;
-    for (let i=0;i<N;i++){
-      const a = toP + rnd(-0.5,0.5) + (i - N/2)*0.12;
-      fireSeeker(e.x+Math.cos(a)*32, e.y+Math.sin(a)*32, a, 240 + e.phase*10, 3.2, 1.7, '#7fcfd6');
-    }
-    if (throttle('swarmLaunch', 150)) tone(220, 0.22, 'sine', 0.05);
-  }
-  e.attackT -= tdt;
-  if (e.attackT <= 0 && sees){
-    e.attackT = Math.max(1.4, 3.0 - e.phase*0.4);
-    if (e.phase >= 2){
-      // Beat shockwave
-      shockwaves.push({x:e.x,y:e.y,r:20,maxR:420,life:0,maxLife:1.3,hit:false});
-      Snd.shockwave(); shake = Math.max(shake, 0.15);
-    }
-  }
-}
-
-/* REVENANT — never takes damage from direct hits. Only ricochet bullets
-   (bullets that have bounced at least once) can damage it. On a successful
-   hit, leaves a temporary echo decoy that fires a single delayed shot. */
-function updateRevenant(e, dt, tdt, toP, sees){
-  // Floats around player at mid range
-  const d = dist(e, player), desired = 340;
-  e.vx = Math.cos(toP) * (d - desired) * 0.5 + (-Math.sin(toP)) * e.speed;
-  e.vy = Math.sin(toP) * (d - desired) * 0.5 + ( Math.cos(toP)) * e.speed;
-  e.vulnFlash = Math.max(0, e.vulnFlash - dt);
-  e.attackT -= tdt;
-  if (e.attackT <= 0 && sees){
-    e.attackT = Math.max(0.8, 2.0 - e.phase*0.3);
-    const p = (e.attackPattern++) % 3;
-    if (p===0){
-      // Three slow bullets fanned — they're easy to dodge BUT they're ammo
-      // for your ricochets if you angle correctly off walls
-      for (let k=-1;k<=1;k++){
-        const a = toP + k*0.32;
-        fireBullet('enemy', e.x+Math.cos(a)*26, e.y+Math.sin(a)*26, Math.cos(a)*320, Math.sin(a)*320, {color:'#d6c4ff'});
-      }
-    } else if (p===1){
-      // A pair of slow seekers
-      for (let k=-1;k<=1;k+=2){
-        const a = toP + k*0.18;
-        fireSeeker(e.x+Math.cos(a)*26, e.y+Math.sin(a)*26, a, 230, 3.6, 1.6, '#d6c4ff');
-      }
-    } else {
-      // Brief shockwave to push the player off a comfortable angle
-      shockwaves.push({x:e.x,y:e.y,r:18,maxR:300,life:0,maxLife:1.1,hit:false});
-      if (throttle('revenantPulse', 200)) Snd.shockwave();
-    }
-    Snd.enemyShoot();
-  }
-}
-
-/* AION — the final composite boss. Cycles through "modes" that compose every
-   subsystem: SEEKER · TIMEPOOL · GRAVITY · PROJECTION (sentinel beam grid).
-   Phase increases mode density and seeker turn-rate. */
-function updateAion(e, dt, tdt, toP, sees){
-  e.aionModeT -= tdt;
-  if (e.aionModeT <= 0){
-    e.aionModeT = 5.0;
-    e.aionMode = (e.aionMode + 1) % 4;
-    if (throttle('aionMode', 300)) tone(440, 0.28, 'sine', 0.05);
-  }
-  // Always-on gravity in phase 3+
-  if (e.phase >= 3) addGravity(e.x, e.y, 90, 360);
-
-  e.attackT -= tdt;
-  if (e.attackT > 0 || !sees) return;
-  e.attackT = Math.max(0.9, 2.0 - e.phase*0.25);
-
-  switch (e.aionMode){
-    case 0: {  // SEEKER swarm — homing focus
-      const N = 3 + e.phase;
-      for (let i=0;i<N;i++){
-        const a = toP + rnd(-0.7,0.7);
-        fireSeeker(e.x+Math.cos(a)*32, e.y+Math.sin(a)*32, a, 260, 3.4, 1.8 + e.phase*0.15, '#e6d6a0');
-      }
-      break;
-    }
-    case 1: {  // TIMEPOOL — plant a zone near player, with a slow ring chaser
-      plantTimeZone(player.x, player.y, 120, 4.0, 0.42);
-      const c = 6 + e.phase*2;
-      for (let i=0;i<c;i++){ const a = (TAU/c)*i + performance.now()*0.001;
-        fireBullet('enemy', e.x+Math.cos(a)*32, e.y+Math.sin(a)*32, Math.cos(a)*240, Math.sin(a)*240, {color:'#e6d6a0'});
-      }
-      break;
-    }
-    case 2: {  // GRAVITY pulse + shockwave
-      shockwaves.push({x:e.x, y:e.y, r:20, maxR:520, life:0, maxLife:1.4, hit:false});
-      addGravity(e.x, e.y, 240, 480);
-      Snd.shockwave();
-      break;
-    }
-    case 3: {  // PROJECTION beams — three sentinel-style beams in a fan
-      for (let k=-1;k<=1;k++){
-        const a = toP + k*0.35;
-        plantBeamLine(e.x, e.y, a, 0.7, 0.35, '#e6d6a0');
-      }
-      if (throttle('aionBeam', 200)) tone(900, 0.20, 'sine', 0.05);
-      break;
-    }
-  }
-  Snd.enemyShoot();
-}
-
 /* ============================ COMBAT / DAMAGE =============================== */
 function fireBullet(owner, x, y, vx, vy, opts={}){
   bullets.push({
     x, y, vx, vy, owner, life: opts.life||2.2,
     r: opts.r||3, trail: [], pierce: opts.pierce||0,
     ricochet: opts.ricochet||0,
-    color: opts.color || (owner==='player' ? PALETTE.bullet : PALETTE.bulletEnemy),
-    big: opts.big||false,
-    // Seeker fields (default off): when homing=true, velocity rotates toward
-    // player each frame, capped by turnRate. Speed magnitude is preserved.
-    homing: !!opts.homing,
-    seeker: !!opts.seeker,
-    turnRate: opts.turnRate || 2.4,
-    speed: opts.speed || Math.hypot(vx, vy),
-    ricochetCount: 0  // tracked for revenant-style "ricochet-only" damage
+    color: owner==='player' ? PALETTE.bullet : PALETTE.bulletEnemy,
+    big: opts.big||false
   });
-}
-/* Helper: launch a homing seeker.
-   angle = initial heading, spd = constant speed, life = seconds until expiry,
-   turn = max rad/s the seeker can steer (lower = easier to outrun). */
-function fireSeeker(x, y, angle, spd, life, turn, color){
-  fireBullet('enemy', x, y, Math.cos(angle)*spd, Math.sin(angle)*spd, {
-    homing:true, seeker:true, life:life, turnRate:turn, speed:spd,
-    r: 4, color: color || '#b88aff'
-  });
-}
-
-/* ============================ EXPANSION SUBSYSTEMS ==========================
-   Each helper appends to a global array; tickZones / tickTethers / drawZones
-   run inside the main update + render loops.
-   ========================================================================== */
-
-/* Time-zone: a soft lavender bubble. While the player overlaps it, time
-   advances at zoneForce regardless of movement. Telegraphed by an expanding
-   spawn ring (warmup), then a steady fill, then a graceful fade-out. */
-function plantTimeZone(x, y, r, life, force, color){
-  zones.push({kind:'time', x, y, r, life, max:life, warmup:0.6, force:force||0.42, color: color||'#9c8fd6'});
-}
-/* Weave mine: a small node that detonates after fuse seconds into a line of
-   energy along `angle` (perpendicular gives a wall). The detonation does a
-   single hit if you stand on it the instant it pops. */
-function plantWeaveMine(x, y, angle, fuse, length, color){
-  zones.push({kind:'weave', x, y, angle, fuse, max:fuse, length:length||220, life:fuse, color: color||'#e3b76a', detonated:false, fadeT:0});
-}
-/* Static beam: a sentinel locks a line at the start of a charge, then the
-   beam materialises briefly. Player must clear the line before commit. */
-function plantBeamLine(x, y, angle, charge, dwell, color){
-  zones.push({kind:'beam', x, y, angle, charge, max:charge, dwell, dwellT:dwell, color: color||'#d9876a', fired:false, life: charge + dwell});
-}
-/* Tether: a soft yellow-green line from owner to player. Drains 1 HP / 0.8s
-   while attached. Broken if LOS is broken OR the player dashes through it. */
-function addTether(owner){
-  tethers.push({owner, life:5.0, tickT:0.8, draining:false});
-}
-/* Gravity well: appends a single-frame gravitational pull centred on (x,y).
-   Re-applied every frame by the boss while alive. Soft pull, no instant snap. */
-function addGravity(x, y, strength, radius){
-  gravityWells.push({x, y, strength, radius});
-}
-
-/* Per-frame zone processing. Damage application happens once on commit. */
-function tickZones(dt, tdt){
-  for (let i=zones.length-1;i>=0;i--){
-    const z = zones[i];
-    z.life -= tdt;
-    if (z.kind === 'weave'){
-      if (!z.detonated && z.fuse > 0){
-        z.fuse -= tdt;
-        if (z.fuse <= 0){
-          z.detonated = true; z.fadeT = 0.45;
-          // Hit only at the moment of detonation, only if player is on the line
-          if (player.alive && player.iframes <= 0){
-            const dx = player.x - z.x, dy = player.y - z.y;
-            const along = dx*Math.cos(z.angle) + dy*Math.sin(z.angle);
-            const perp  = Math.abs(dx*(-Math.sin(z.angle)) + dy*Math.cos(z.angle));
-            if (Math.abs(along) < z.length*0.5 && perp < 14 && player.dashT <= 0) damagePlayer(1);
-          }
-          tone(360, 0.18, 'sine', 0.045);
-        }
-      } else if (z.detonated){
-        z.fadeT -= dt;
-        if (z.fadeT <= 0) zones.splice(i,1);
-      }
-    } else if (z.kind === 'beam'){
-      if (!z.fired && z.charge > 0){
-        z.charge -= tdt;
-        if (z.charge <= 0){
-          z.fired = true;
-          if (player.alive && player.iframes <= 0){
-            const dx = player.x - z.x, dy = player.y - z.y;
-            const along = dx*Math.cos(z.angle) + dy*Math.sin(z.angle);
-            const perp  = Math.abs(dx*(-Math.sin(z.angle)) + dy*Math.cos(z.angle));
-            if (along > 0 && along < 900 && perp < 10 && player.dashT <= 0) damagePlayer(1);
-          }
-          tone(220, 0.22, 'sine', 0.05);
-        }
-      } else if (z.fired){
-        z.dwellT -= dt;
-        if (z.dwellT <= 0) zones.splice(i,1);
-      }
-    } else if (z.kind === 'time'){
-      if (z.life <= 0) zones.splice(i,1);
-    }
-  }
-}
-
-/* Per-frame tether processing. Tethers die if owner dies or LOS breaks. */
-function tickTethers(dt, tdt){
-  for (let i=tethers.length-1;i>=0;i--){
-    const t = tethers[i];
-    if (!t.owner.alive){ tethers.splice(i,1); continue; }
-    if (!player.alive){ tethers.splice(i,1); continue; }
-    // LOS break: any wall between owner & player drops the tether instantly
-    if (!lineOfSight(t.owner, player)){ tethers.splice(i,1); Snd.click(); continue; }
-    // Dash break: a dash perpendicular to the tether snaps it
-    if (player.dashT > 0){ tethers.splice(i,1); Snd.click(); continue; }
-    t.life -= tdt;
-    t.tickT -= tdt;
-    if (t.tickT <= 0 && player.iframes <= 0){
-      t.tickT = 0.9;
-      damagePlayer(1);
-    }
-    if (t.life <= 0) tethers.splice(i,1);
-  }
-}
-
-/* Apply this frame's gravity wells to the player. */
-function applyGravity(dt){
-  if (!player.alive || player.dashT > 0) return;
-  for (const g of gravityWells){
-    const dx = g.x - player.x, dy = g.y - player.y;
-    const d = Math.hypot(dx, dy);
-    if (d > g.radius || d < 0.01) continue;
-    // Pull strength falls off with distance — gentle close, weakest at edge
-    const force = g.strength * (1 - d/g.radius);
-    player.vx += (dx/d) * force * dt;
-    player.vy += (dy/d) * force * dt;
-  }
-  gravityWells.length = 0;  // re-emitted next frame by living bosses
-}
-
-/* Forced-time floor from active time-zones (used by main update). */
-function timeZoneFloor(){
-  let f = 0;
-  for (const z of zones){
-    if (z.kind !== 'time') continue;
-    if (Math.hypot(player.x - z.x, player.y - z.y) < z.r){
-      f = Math.max(f, z.force);
-    }
-  }
-  return f;
 }
 
 function damageEnemy(e, src, isCrit){
@@ -1255,17 +868,6 @@ function damageEnemy(e, src, isCrit){
     for (let i=0;i<5;i++){const a=rnd(0,TAU);particles.push({x:e.x,y:e.y,vx:Math.cos(a)*120,vy:Math.sin(a)*120,life:0.2,max:0.2,r:2,color:'#c45dff',kind:'spark'});}
     tone(420,0.06,'triangle',0.05);
     return;
-  }
-  // Revenant: only ricocheted bullets deal damage. Direct hits ping off and
-  // emit a soft tell so the player learns the rule organically.
-  if (e.isBoss && e.bossType==='revenant'){
-    const ric = src && (src.ricochetCount|0) > 0;
-    if (!ric){
-      e.vulnFlash = Math.max(e.vulnFlash, 0.25);
-      for (let i=0;i<6;i++){const a=rnd(0,TAU);particles.push({x:e.x,y:e.y,vx:Math.cos(a)*120,vy:Math.sin(a)*120,life:0.25,max:0.25,r:1.5,color:'#d6c4ff',kind:'spark'});}
-      if (throttle('revenantPing', 110)) tone(820, 0.08, 'sine', 0.04);
-      return;
-    }
   }
   e.hp -= 1; e.hurt = 0.18;
   if (e.hp <= 0){
@@ -1382,8 +984,6 @@ function update(realDt){
       timeFloor = Math.max(timeFloor, e.forcedTime || 0.4);
     }
   }
-  // Horologist & Aion: time-pools on the floor also force time when stood in
-  timeFloor = Math.max(timeFloor, timeZoneFloor());
   if (timeFloor > 0.02) targetTime = Math.max(targetTime, timeFloor);
   // Smooth time
   timeScale = lerp(timeScale, targetTime, Math.min(1, realDt * 14));
@@ -1460,10 +1060,6 @@ function update(realDt){
       player.vy = lerp(player.vy, targetVY, Math.min(1, dt * accel/380));
     }
 
-    // Apply gravity wells (emitted by GravCore / Aion). Pulls the player
-    // toward the well by an amount proportional to distance. A dash overrides
-    // the pull (iframes + raw dash vector), giving deterministic counter-play.
-    applyGravity(dt);
     // Movement is on REAL time so input feels crisp regardless of time-scale.
     // ROBUST COLLISION: split the frame into small substeps (max ~6 px per step)
     // and resolve each axis independently against AABB walls + glass + props.
@@ -1656,112 +1252,6 @@ function update(realDt){
         damagePlayer(1);
         e.hp = 0;
       }
-    /* ----- EXPANSION MINIONS — wave 13–22 ---------------------------- */
-    } else if (e.type==='tracker'){
-      // Strafe at desired range, then lock + launch a small seeker burst
-      const d = dist(e, player), desired = 360;
-      e.vx = Math.cos(toP)*(d-desired)*0.3 + (-Math.sin(toP))*e.speed*e.strafe;
-      e.vy = Math.sin(toP)*(d-desired)*0.3 + ( Math.cos(toP))*e.speed*e.strafe;
-      if (e.locking){
-        e.lockT -= tdt;
-        e.vx *= 0.4; e.vy *= 0.4;  // slows during lock — gives the tell time to read
-        if (e.lockT <= 0){
-          e.locking = false;
-          // Two seekers, slightly diverging — out-strafable but not trivial
-          const a0 = toP - 0.20, a1 = toP + 0.20;
-          fireSeeker(e.x+Math.cos(a0)*22, e.y+Math.sin(a0)*22, a0, 290, 3.6, 2.3, '#b88aff');
-          fireSeeker(e.x+Math.cos(a1)*22, e.y+Math.sin(a1)*22, a1, 290, 3.6, 2.3, '#b88aff');
-          e.fireCd = e.fireRate;
-          if (throttle('seekerLaunch', 120)) tone(540, 0.18, 'sine', 0.045);
-        }
-      } else {
-        e.fireCd -= tdt;
-        if (e.fireCd <= 0 && sees){ e.locking = true; e.lockT = 0.65; }
-      }
-    } else if (e.type==='weaver'){
-      // Holds at mid range and plants delayed line-mines in a fan
-      const d = dist(e, player), desired = 380;
-      e.vx = Math.cos(toP)*(d-desired)*0.25 + (-Math.sin(toP))*e.speed*e.strafe*0.6;
-      e.vy = Math.sin(toP)*(d-desired)*0.25 + ( Math.cos(toP))*e.speed*e.strafe*0.6;
-      e.fireCd -= tdt;
-      if (e.fireCd <= 0 && sees){
-        e.fireCd = e.fireRate;
-        // Plant 3 mines in an arc PAST the player so they form a curtain to cross
-        for (let k=-1;k<=1;k++){
-          const a = toP + k*0.55;
-          const px = player.x + Math.cos(a) * 140;
-          const py = player.y + Math.sin(a) * 140;
-          plantWeaveMine(px, py, a + Math.PI/2, 1.4, 220, '#e3b76a');
-        }
-        if (throttle('weavePlant', 200)) tone(260, 0.14, 'triangle', 0.04);
-      }
-    } else if (e.type==='mirror'){
-      // Copies player velocity with 0.5s delay; cannot collide with player
-      e.mirrorBuf = e.mirrorBuf || [];
-      e.mirrorBuf.push({vx: player.vx*0.55, vy: player.vy*0.55, t: performance.now()});
-      // Drop frames older than the delay window (real-time delay)
-      const lag = 500;
-      while (e.mirrorBuf.length > 0 && performance.now() - e.mirrorBuf[0].t > lag*1.2) e.mirrorBuf.shift();
-      const sample = e.mirrorBuf[0];
-      if (sample){ e.vx = sample.vx; e.vy = sample.vy; }
-      // Fire when the player just fired (also delayed). fireQueue ticks down by real time.
-      if (mouseFired && player.ammo > 0 && !player.reloading){ e.fireQueue = (e.fireQueue||0) + 1; }
-      e.fireCdShoot = Math.max(0, e.fireCdShoot - dt);
-      if (e.fireQueue > 0 && e.fireCdShoot <= 0){
-        e.fireQueue--; e.fireCdShoot = 0.3;
-        const a = toP;
-        fireBullet('enemy', e.x+Math.cos(a)*20, e.y+Math.sin(a)*20, Math.cos(a)*420, Math.sin(a)*420, {color:'#c9d6e6'});
-        if (throttle('mirrorFire', 80)) tone(420, 0.10, 'sine', 0.035);
-      }
-    } else if (e.type==='pulse'){
-      // Stationary. Beat counter accumulates in REAL time so the rhythm feels
-      // steady even when time is dilated — that's intentional: pulses are the
-      // metronome you read while the rest of the world drifts.
-      e.vx = 0; e.vy = 0;
-      e.beatT = (e.beatT || 0) + dt;
-      if (e.beatT >= e.beatPeriod){
-        e.beatT -= e.beatPeriod;
-        // Telegraphed by the inner ring; the pulse itself is a shockwave with
-        // a small radius that DOES NOT chain — predictable, dodgeable.
-        shockwaves.push({x:e.x, y:e.y, r:18, maxR:220, life:0, maxLife:0.85, hit:false, color:'#6acac0'});
-        if (throttle('pulseBeat', 100)) tone(520, 0.10, 'sine', 0.035);
-      }
-    } else if (e.type==='sentinel'){
-      // Stationary. After 1.6s cooldown, charges a beam locked on the current
-      // line for 0.9s, then fires. Player must clear the line.
-      e.vx = 0; e.vy = 0;
-      if (!e.charging){
-        e.fireCd -= tdt;
-        if (e.fireCd <= 0 && sees){
-          e.charging = true; e.chargeT = 0.9;
-          e.beamLockAngle = toP;
-          if (throttle('sentinelCharge', 150)) tone(700, 0.20, 'sine', 0.05);
-        }
-      } else {
-        e.chargeT -= tdt;
-        if (e.chargeT <= 0){
-          plantBeamLine(e.x, e.y, e.beamLockAngle, 0.0, 0.35, '#d9876a');
-          e.charging = false;
-          e.fireCd = 2.0;
-        }
-      }
-    } else if (e.type==='binder'){
-      // Maintains medium range; throws a tether bolt every ~3s. While linked,
-      // applies a tick of damage on a timer. LOS or dash breaks the link.
-      const d = dist(e, player), desired = 300;
-      e.vx = Math.cos(toP)*(d-desired)*0.35 + (-Math.sin(toP))*e.speed*e.strafe*0.7;
-      e.vy = Math.sin(toP)*(d-desired)*0.35 + ( Math.cos(toP))*e.speed*e.strafe*0.7;
-      // Remove our tether if it's already in the global list and dead
-      const ours = tethers.find(t => t.owner === e);
-      e.hasTether = !!ours;
-      if (!e.hasTether){
-        e.fireCd -= tdt;
-        if (e.fireCd <= 0 && sees){
-          e.fireCd = e.fireRate;
-          addTether(e);
-          if (throttle('bind', 200)) tone(330, 0.20, 'sine', 0.045);
-        }
-      }
     } else if (e.type==='phaser'){
       // INVERSE TIME: moves and fires more when player is still (time is slow)
       e.phase = (e.phase || 0) + dt*8;
@@ -1814,11 +1304,6 @@ function update(realDt){
     for (const g of glassWalls){ if (g.hp<=0) continue; const p = pushOut(e.x,e.y,e.r,g.x,g.y,g.w,g.h); if (p){ e.x=p.x; e.y=p.y; } }
   }
 
-  // Expansion subsystems — process zones & tethers AFTER enemies have updated
-  // so the latest plant/launch events are reflected immediately.
-  tickZones(dt, tdt);
-  tickTethers(dt, tdt);
-
   // ---------- Bullets ----------
   for (let i=bullets.length-1;i>=0;i--){
     const b = bullets[i];
@@ -1826,20 +1311,6 @@ function update(realDt){
     // Trail
     b.trail.push({x:b.x,y:b.y,t:performance.now()});
     if (b.trail.length > 14) b.trail.shift();
-
-    // Homing steering — rotate velocity toward player with a fixed turn-rate
-    // cap. The seeker therefore has a finite minimum turning radius the
-    // player can out-strafe with a well-timed dash or wall lead.
-    if (b.homing && player.alive){
-      const desired = Math.atan2(player.y - b.y, player.x - b.x);
-      const cur = Math.atan2(b.vy, b.vx);
-      let diff = ((desired - cur + Math.PI*3) % TAU) - Math.PI;
-      const maxTurn = b.turnRate * tdt;
-      const turn = Math.max(-maxTurn, Math.min(maxTurn, diff));
-      const a = cur + turn;
-      b.vx = Math.cos(a) * b.speed;
-      b.vy = Math.sin(a) * b.speed;
-    }
 
     const nx = b.x + b.vx*tdt;
     const ny = b.y + b.vy*tdt;
@@ -1874,7 +1345,6 @@ function update(realDt){
       // Ricochet for player bullets
       if (b.owner==='player' && b.ricochet > 0){
         b.ricochet--;
-        b.ricochetCount = (b.ricochetCount|0) + 1;
         const ww = hitWall.wall;
         // Determine normal (rough): nearest face
         const cx = clamp(hitWall.x, ww.x, ww.x+ww.w);
@@ -1933,7 +1403,7 @@ function update(realDt){
             continue;
           }
           if (Math.hypot(e.x-b.x, e.y-b.y) < e.r + b.r){
-            damageEnemy(e, b); hitSomething = true; break;
+            damageEnemy(e); hitSomething = true; break;
           }
         }
       }
@@ -2156,115 +1626,12 @@ function drawHitMarks(){
 function drawShockwaves(){
   for (const s of shockwaves){
     const a = 1 - s.life/s.maxLife;
-    ctx.lineWidth = 2 + (1-a)*6;
-    const color = s.color || (s.small ? '255,170,60' : '120,200,255');
-    const [r,g,b] = color.startsWith('#') ? hexRgb(color) : color.split(',').map(n=>parseInt(n,10));
-    ctx.strokeStyle = `rgba(${r},${g},${b},${a*0.85})`;
+    ctx.lineWidth = 3 + (1-a)*8;
+    ctx.strokeStyle = s.small ? `rgba(255,170,60,${a})` : `rgba(120,200,255,${a*0.9})`;
     ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.stroke();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = `rgba(255,255,255,${a*0.5})`;
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = `rgba(255,255,255,${a*0.6})`;
     ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.stroke();
-  }
-}
-function hexRgb(hex){
-  const h = hex.replace('#','');
-  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
-}
-
-/* Draw expansion zones: time-pools, weave-mines, sentinel beams.
-   Each kind has a clear telegraph silhouette so the player can read it
-   before it acts. */
-function drawZones(){
-  for (const z of zones){
-    if (z.kind === 'time'){
-      // Soft lavender bubble, edge thicker than fill
-      const a = clamp(z.life/z.max, 0, 1);
-      ctx.save();
-      const grad = ctx.createRadialGradient(z.x, z.y, z.r*0.2, z.x, z.y, z.r);
-      grad.addColorStop(0, `rgba(156,143,214,${0.20*a})`);
-      grad.addColorStop(1, `rgba(156,143,214,0)`);
-      ctx.fillStyle = grad;
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.fill();
-      ctx.strokeStyle = `rgba(184,169,255,${0.5*a})`;
-      ctx.lineWidth = 1.4;
-      ctx.setLineDash([6, 8]);
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, TAU); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-    } else if (z.kind === 'weave'){
-      const fuseFrac = z.detonated ? 1 : 1 - z.fuse/z.max;
-      ctx.save();
-      // Telegraphed wall — dim and dashed during fuse, then bright flash on detonation
-      if (!z.detonated){
-        // Node dot
-        ctx.fillStyle = `rgba(227,183,106,${0.4 + 0.6*fuseFrac})`;
-        ctx.beginPath(); ctx.arc(z.x, z.y, 5, 0, TAU); ctx.fill();
-        // Preview line
-        ctx.strokeStyle = `rgba(227,183,106,${0.15 + 0.45*fuseFrac})`;
-        ctx.lineWidth = 1 + 1.6*fuseFrac;
-        ctx.setLineDash([5, 6]);
-        const dx = Math.cos(z.angle)*z.length*0.5, dy = Math.sin(z.angle)*z.length*0.5;
-        ctx.beginPath(); ctx.moveTo(z.x-dx, z.y-dy); ctx.lineTo(z.x+dx, z.y+dy); ctx.stroke();
-        ctx.setLineDash([]);
-      } else {
-        // Detonation flash — quick fade
-        const a = clamp(z.fadeT/0.45, 0, 1);
-        ctx.strokeStyle = `rgba(252,223,154,${0.9*a})`;
-        ctx.lineWidth = 4 + 4*a;
-        ctx.shadowColor = '#e3b76a'; ctx.shadowBlur = 18;
-        const dx = Math.cos(z.angle)*z.length*0.5, dy = Math.sin(z.angle)*z.length*0.5;
-        ctx.beginPath(); ctx.moveTo(z.x-dx, z.y-dy); ctx.lineTo(z.x+dx, z.y+dy); ctx.stroke();
-        ctx.shadowBlur = 0;
-      }
-      ctx.restore();
-    } else if (z.kind === 'beam'){
-      ctx.save();
-      const dx = Math.cos(z.angle)*900, dy = Math.sin(z.angle)*900;
-      // Stop at first wall — same line-stop logic as sentinel preview
-      let ex = z.x+dx, ey = z.y+dy;
-      let hit = null;
-      for (const w of walls){ const h = segHitsRect(z.x,z.y,ex,ey,w.x,w.y,w.w,w.h); if (h && (!hit || h.t<hit.t)) hit = h; }
-      if (hit){ ex = hit.x; ey = hit.y; }
-      if (!z.fired){
-        // Charging — dim dashed
-        const t = 1 - z.charge/z.max;
-        ctx.strokeStyle = `rgba(217,135,106,${0.18 + 0.4*t})`;
-        ctx.lineWidth = 1 + 2*t;
-        ctx.setLineDash([4, 7]);
-        ctx.beginPath(); ctx.moveTo(z.x, z.y); ctx.lineTo(ex, ey); ctx.stroke();
-        ctx.setLineDash([]);
-      } else {
-        const a = clamp(z.dwellT/0.35, 0, 1);
-        ctx.strokeStyle = `rgba(255,200,170,${0.85*a})`;
-        ctx.lineWidth = 4 + 3*a;
-        ctx.shadowColor = '#d9876a'; ctx.shadowBlur = 22;
-        ctx.beginPath(); ctx.moveTo(z.x, z.y); ctx.lineTo(ex, ey); ctx.stroke();
-        ctx.shadowBlur = 0;
-      }
-      ctx.restore();
-    }
-  }
-}
-
-/* Tether: yellow-green line that vibrates subtly while linked. Player learns
-   to look for the colour and either dash through it or break LOS. */
-function drawTethers(){
-  for (const t of tethers){
-    if (!t.owner.alive || !player.alive) continue;
-    const sx = t.owner.x, sy = t.owner.y, ex = player.x, ey = player.y;
-    const wob = Math.sin(performance.now()*0.012) * 1.5;
-    ctx.save();
-    // Outer soft glow
-    ctx.strokeStyle = 'rgba(196,207,122,0.18)';
-    ctx.lineWidth = 6;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex+wob, ey-wob); ctx.stroke();
-    // Inner core
-    ctx.strokeStyle = 'rgba(236,242,191,0.85)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
   }
 }
 
@@ -2353,19 +1720,12 @@ function drawBullets(){
   }
   // Heads
   for (const b of bullets){
-    const c = b.color || (b.owner==='player' ? '#fff7c6' : '#ff7a90');
+    const c = b.owner==='player' ? '#fff7c6' : '#ff7a90';
     ctx.fillStyle = c;
-    ctx.shadowColor = c; ctx.shadowBlur = b.seeker ? 22 : 16;
+    ctx.shadowColor = c; ctx.shadowBlur = 16;
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r*0.5, 0, TAU); ctx.fill();
-    // Seeker: pulsing reticle ring telegraphs the homing threat at a glance
-    if (b.seeker){
-      const t = (performance.now()%700)/700;
-      ctx.strokeStyle = `rgba(184,138,255,${0.55 - 0.4*t})`;
-      ctx.lineWidth = 1.1;
-      ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 3 + t*8, 0, TAU); ctx.stroke();
-    }
     ctx.shadowBlur = 0;
   }
   ctx.restore();
@@ -2386,18 +1746,6 @@ function drawEnemy(e){
   else if (e.type==='sniper'){ glow='#ff3838'; stroke='#ff5050'; fill='#2a0808'; core='#ffd0d0'; }
   else if (e.type==='splitter'){ glow='#ffa030'; stroke='#ffa030'; fill='#2a1808'; core='#ffd28a'; }
   else if (e.type==='phaser'){ glow='#9b7aff'; stroke='#c8b4ff'; fill='#1a1030'; core='#e0d4ff'; }
-  // EXPANSION palette — each archetype owns one hue
-  else if (e.type==='tracker'){  glow='#b88aff'; stroke='#b88aff'; fill='#1c1432'; core='#e0caff'; }
-  else if (e.type==='weaver'){   glow='#e3b76a'; stroke='#e3b76a'; fill='#2a1f10'; core='#fcdf9a'; }
-  else if (e.type==='mirror'){   glow='#c9d6e6'; stroke='#c9d6e6'; fill='#161a22'; core='#ffffff'; }
-  else if (e.type==='pulse'){    glow='#6acac0'; stroke='#6acac0'; fill='#0c2220'; core='#bff5ec'; }
-  else if (e.type==='sentinel'){ glow='#d9876a'; stroke='#d9876a'; fill='#2a1410'; core='#ffd0b8'; }
-  else if (e.type==='binder'){   glow='#c4cf7a'; stroke='#c4cf7a'; fill='#1e2010'; core='#ecf2bf'; }
-  // Boss palette
-  if (e.isBoss && e.bossType==='horologist'){ glow='#9c8fd6'; stroke='#b8a9ff'; fill='#1a1230'; core='#e2d8ff'; }
-  else if (e.isBoss && e.bossType==='gravcore'){  glow='#7fcfd6'; stroke='#a8e6ec'; fill='#0c2024'; core='#dffaff'; }
-  else if (e.isBoss && e.bossType==='revenant'){  glow='#d6c4ff'; stroke='#e2d4ff'; fill='#1c1830'; core='#ffffff'; }
-  else if (e.isBoss && e.bossType==='aion'){      glow='#e6d6a0'; stroke='#fce8b2'; fill='#221a0a'; core='#fff4c8'; }
 
   // Phantom (vulnerable = visible solid, else translucent/flickering)
   if (e.isBoss && e.bossType==='phantom' && !e.vulnerable){
@@ -2442,71 +1790,6 @@ function drawEnemy(e){
       if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
     }
     ctx.closePath(); ctx.fill(); ctx.stroke();
-  /* EXPANSION silhouettes ------------------------------------------- */
-  } else if (e.type==='tracker'){
-    // Pentagon — five-point lock
-    ctx.beginPath();
-    for (let i=0;i<5;i++){ const a=i*TAU/5 - Math.PI/2; const x=Math.cos(a)*baseR, y=Math.sin(a)*baseR; if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);} ctx.closePath();
-    ctx.fill(); ctx.stroke();
-  } else if (e.type==='weaver'){
-    // Rounded square — placid until it acts
-    const r = baseR*0.9;
-    ctx.beginPath();
-    ctx.moveTo(-r,-r); ctx.lineTo(r,-r); ctx.lineTo(r,r); ctx.lineTo(-r,r); ctx.closePath();
-    ctx.fill(); ctx.stroke();
-  } else if (e.type==='mirror'){
-    // Concentric rings + inner dot — visually a "reflection"
-    ctx.beginPath(); ctx.arc(0,0,baseR,0,TAU); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(0,0,baseR*0.65,0,TAU); ctx.stroke();
-  } else if (e.type==='pulse'){
-    // Donut — clearly stationary, clearly emitting
-    ctx.beginPath(); ctx.arc(0,0,baseR,0,TAU); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(0,0,baseR*0.45,0,TAU); ctx.fillStyle = '#000'; ctx.fill();
-  } else if (e.type==='sentinel'){
-    // Vertical lens — eye that watches
-    ctx.beginPath();
-    ctx.ellipse(0, 0, baseR*0.7, baseR*1.1, 0, 0, TAU);
-    ctx.fill(); ctx.stroke();
-  } else if (e.type==='binder'){
-    // Plus sign with rounded edges
-    const r = baseR*0.5, l = baseR;
-    ctx.beginPath();
-    ctx.rect(-r,-l, r*2, l*2);
-    ctx.rect(-l,-r, l*2, r*2);
-    ctx.fill(); ctx.stroke();
-  // Expansion bosses ----------------------------------------------
-  } else if (e.isBoss && e.bossType==='horologist'){
-    // Clock face — outer ring + radial ticks
-    ctx.beginPath(); ctx.arc(0,0,baseR,0,TAU); ctx.fill(); ctx.stroke();
-    ctx.beginPath();
-    for (let i=0;i<12;i++){ const a=i*TAU/12; ctx.moveTo(Math.cos(a)*baseR*0.78, Math.sin(a)*baseR*0.78); ctx.lineTo(Math.cos(a)*baseR*0.95, Math.sin(a)*baseR*0.95); }
-    ctx.stroke();
-  } else if (e.isBoss && e.bossType==='gravcore'){
-    // Concentric rings — the well visualised
-    for (let i=0;i<3;i++){
-      ctx.globalAlpha = i===0 ? 1 : 0.5 - i*0.12;
-      ctx.beginPath(); ctx.arc(0,0,baseR - i*8,0,TAU);
-      if (i===0) ctx.fill();
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  } else if (e.isBoss && e.bossType==='revenant'){
-    // Crescent — the ghost
-    ctx.beginPath(); ctx.arc(0,0,baseR,0,TAU); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#06080d';
-    ctx.beginPath(); ctx.arc(baseR*0.3, 0, baseR*0.75, 0, TAU); ctx.fill();
-    ctx.strokeStyle = stroke;
-    ctx.beginPath(); ctx.arc(baseR*0.3, 0, baseR*0.75, 0, TAU); ctx.stroke();
-  } else if (e.isBoss && e.bossType==='aion'){
-    // Twelve-pointed star — final clock
-    ctx.beginPath();
-    for (let i=0;i<24;i++){
-      const a = i*TAU/24 + e.angle*0.15;
-      const r = i%2===0 ? baseR : baseR*0.6;
-      const x = Math.cos(a)*r, y = Math.sin(a)*r;
-      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-    }
-    ctx.closePath(); ctx.fill(); ctx.stroke();
   } else {
     ctx.beginPath(); ctx.arc(0,0,baseR,0,TAU); ctx.fill(); ctx.stroke();
   }
@@ -2517,9 +1800,7 @@ function drawEnemy(e){
   ctx.beginPath(); ctx.arc(0,0,baseR*0.35,0,TAU); ctx.fill();
 
   // Direction indicator
-  const noDir = e.type==='sniper' || e.type==='pulse' || e.type==='sentinel'
-             || (e.isBoss && (e.bossType==='omega' || e.bossType==='gravcore' || e.bossType==='aion'));
-  if (!noDir){
+  if (e.type !== 'sniper' && !(e.isBoss && e.bossType==='omega')){
     ctx.rotate(e.angle);
     ctx.strokeStyle = flash ? '#fff' : stroke;
     ctx.lineWidth = 2;
@@ -2681,70 +1962,6 @@ function drawEnemy(e){
     }
   }
 
-  // Expansion indicators — readable telegraphs for new enemies ---------
-  if (e.type==='tracker' && e.locking){
-    // Lock reticle: shrinking crosshair drawing tension
-    const t = 1 - e.lockT/0.65;
-    ctx.save();
-    ctx.strokeStyle = `rgba(184,138,255,${0.4 + 0.5*t})`;
-    ctx.lineWidth = 1.2;
-    const r = 30 - 16*t;
-    ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, TAU); ctx.stroke();
-    // Cross arms
-    for (let k=0;k<4;k++){
-      const a = k*Math.PI/2 + e.angle;
-      ctx.beginPath();
-      ctx.moveTo(e.x + Math.cos(a)*(r-3), e.y + Math.sin(a)*(r-3));
-      ctx.lineTo(e.x + Math.cos(a)*(r+5), e.y + Math.sin(a)*(r+5));
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-  if (e.type==='sentinel' && e.charging){
-    // Beam preview — dashed line from sentinel along locked angle, growing
-    // brighter as it commits
-    const t = 1 - e.chargeT/0.9;
-    ctx.save();
-    ctx.strokeStyle = `rgba(217,135,106,${0.18 + 0.35*t})`;
-    ctx.lineWidth = 1 + 1.4*t;
-    ctx.setLineDash([6, 8]);
-    const ex = e.x + Math.cos(e.beamLockAngle)*900;
-    const ey = e.y + Math.sin(e.beamLockAngle)*900;
-    // Stop at first wall
-    let hit = null;
-    for (const w of walls){ const h = segHitsRect(e.x,e.y,ex,ey,w.x,w.y,w.w,w.h); if (h && (!hit || h.t<hit.t)) hit = h; }
-    ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(hit?hit.x:ex, hit?hit.y:ey); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
-  if (e.type==='pulse'){
-    // Inner countdown ring telegraphs next beat
-    const t = (e.beatT||0) / e.beatPeriod;
-    ctx.save();
-    ctx.strokeStyle = `rgba(106,202,192,${0.35 + 0.4*t})`;
-    ctx.lineWidth = 1 + 1.5*t;
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 5 + 12*t, 0, TAU); ctx.stroke();
-    ctx.restore();
-  }
-  if (e.isBoss && e.bossType==='gravcore'){
-    // Faint pull-radius indicator
-    ctx.save();
-    ctx.strokeStyle = `rgba(127,207,214,${0.10 + 0.06*Math.sin(performance.now()*0.003)})`;
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(e.x, e.y, 420 + e.phase*40, 0, TAU); ctx.stroke();
-    ctx.restore();
-  }
-  if (e.isBoss && e.bossType==='revenant'){
-    // "Ricochet only" hint: faint pinging halo
-    ctx.save();
-    ctx.strokeStyle = `rgba(214,196,255,${0.22 + 0.18*Math.sin(performance.now()*0.004) + e.vulnFlash*0.6})`;
-    ctx.lineWidth = 1.2;
-    ctx.setLineDash([3, 5]);
-    ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 14, 0, TAU); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
-
   // Awareness indicator (eye)
   if (e.aware && !e.isBoss){
     ctx.fillStyle = `rgba(255,80,100,${0.6 + 0.4*Math.sin(performance.now()*0.012)})`;
@@ -2860,7 +2077,6 @@ function render(){
     drawGrid();
     drawArenaEdge();
     drawWalls();
-    drawZones();          // time-pools / weave-mines / sentinel-beams under everything
     drawHitMarks();
     drawShockwaves();
     drawDebris();
@@ -2868,7 +2084,6 @@ function render(){
     drawRagdolls();
     drawEchoes();
     for (const e of enemies) if (e.alive) drawEnemy(e);
-    drawTethers();         // tether lines drawn AFTER enemies so the start point sits on top
     drawPlayer();
     drawBullets();
     drawParticles();
@@ -3067,7 +2282,6 @@ player = newPlayer();
 buildArena();
 enemies = []; bullets = []; particles = [];
 shockwaves = []; debris = []; ragdolls = []; decoys = []; hitMarks = []; recordBuffer = []; echoes = [];
-zones = []; tethers = []; gravityWells = [];
 
 requestAnimationFrame(loop);
 </script>
