@@ -6,92 +6,63 @@
 <title>TIMECAST</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{width:100%;height:100%;overflow:hidden;background:#06080d;color:#cfdaea;font-family:"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;-webkit-font-smoothing:antialiased}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05060a;color:#dfeaff;font-family:"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;-webkit-font-smoothing:antialiased}
   #gc{display:block;width:100vw;height:100vh;cursor:none;image-rendering:auto}
-  /* Calmer, softer vignette — less heavy edge crush */
   #vignette{position:fixed;inset:0;pointer-events:none;z-index:5;
-    background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%);
+    background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.65) 100%);
     mix-blend-mode:multiply}
-  /* Subtler scanlines — barely-there texture */
-  #scanlines{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:.045;
+  #scanlines{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:.10;
     background:repeating-linear-gradient(0deg,rgba(255,255,255,0.06) 0 1px,transparent 1px 3px)}
-  /* Drop grain to near zero; flicker-free for long sessions */
-  #grain{position:fixed;inset:0;pointer-events:none;z-index:7;opacity:.025;mix-blend-mode:overlay;
+  #grain{position:fixed;inset:0;pointer-events:none;z-index:7;opacity:.05;mix-blend-mode:overlay;
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='2.2' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.7'/></svg>")}
-  /* HUD: cooler, less saturated; smaller glows; single accent (#7cc2e6) */
-  #hud{position:fixed;inset:0;pointer-events:none;z-index:10;color:#cfdaea;font-size:12px;letter-spacing:.18em}
-  .panel{position:absolute;padding:14px 18px;background:rgba(10,14,22,0.55);
-    border:1px solid rgba(124,194,230,0.14);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);border-radius:2px}
-  .panel:before{content:"";position:absolute;left:-1px;top:-1px;width:8px;height:8px;border-top:1px solid rgba(124,194,230,0.6);border-left:1px solid rgba(124,194,230,0.6)}
-  .panel:after{content:"";position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-bottom:1px solid rgba(124,194,230,0.6);border-right:1px solid rgba(124,194,230,0.6)}
-  #tl{top:20px;left:20px;min-width:220px}
-  #tl .lbl{color:#7cc2e6;font-size:10px;opacity:.55}
-  #tl .val{font-size:20px;margin-top:4px;color:#e6eef8;letter-spacing:.05em;font-weight:300}
-  #tl .sub{font-size:10px;opacity:.5;margin-top:2px}
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:10;color:#e6f0ff;font-size:12px;letter-spacing:.18em}
+  .panel{position:absolute;padding:14px 18px;background:linear-gradient(180deg,rgba(8,12,22,0.78),rgba(8,12,22,0.55));
+    border:1px solid rgba(120,200,255,0.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  .panel:before{content:"";position:absolute;left:-1px;top:-1px;width:10px;height:10px;border-top:1px solid #6df;border-left:1px solid #6df}
+  .panel:after{content:"";position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-bottom:1px solid #6df;border-right:1px solid #6df}
+  #tl{top:20px;left:20px;min-width:240px}
+  #tl .lbl{color:#6ad6ff;font-size:10px;opacity:.7}
+  #tl .val{font-size:22px;margin-top:4px;color:#fff;letter-spacing:.05em}
+  #tl .sub{font-size:10px;opacity:.6;margin-top:2px}
   #tr{top:20px;right:20px;text-align:right;min-width:180px}
-  #tr .timebar{height:3px;background:rgba(124,194,230,.10);margin-top:8px;position:relative;overflow:hidden;border-radius:1px}
-  #tr .timebar i{display:block;height:100%;width:2%;background:#7cc2e6;transition:width .25s ease}
+  #tr .timebar{height:6px;background:rgba(120,200,255,.12);margin-top:8px;position:relative;overflow:hidden}
+  #tr .timebar i{display:block;height:100%;width:2%;background:linear-gradient(90deg,#39f,#9cf,#fff);transition:width .12s linear;box-shadow:0 0 12px #6cf}
   #bl{bottom:20px;left:20px}
   #bl .ammo{display:flex;gap:4px;margin-top:6px}
-  #bl .ammo b{width:8px;height:14px;background:#7cc2e6;display:block;opacity:.85;border-radius:1px;transition:opacity .15s}
-  #bl .ammo b.spent{background:#1d2532;opacity:.6}
-  #bl .ammo b.reloading{background:#c9a86a;animation:pulse 1.0s ease-in-out infinite}
-  @keyframes pulse{0%,100%{opacity:.35}50%{opacity:.95}}
+  #bl .ammo b{width:10px;height:18px;background:#6df;box-shadow:0 0 6px #6cf;display:block}
+  #bl .ammo b.spent{background:#222a3a;box-shadow:none}
+  #bl .ammo b.reloading{background:#fa3;box-shadow:0 0 6px #fa3;animation:pulse .6s infinite alternate}
+  @keyframes pulse{from{opacity:.4}to{opacity:1}}
   #bl .hp{display:flex;gap:6px;margin-top:8px}
-  #bl .hp b{width:18px;height:4px;background:#cfdaea;opacity:.85;border-radius:1px;transition:opacity .25s, background .25s}
-  #bl .hp b.lost{background:#1d2532;opacity:.5}
+  #bl .hp b{width:18px;height:6px;background:#f55;box-shadow:0 0 6px #f55}
+  #bl .hp b.lost{background:#2a1820;box-shadow:none}
   #br{bottom:20px;right:20px;text-align:right}
-  /* Combo: small, calm — no big yellow flash */
-  #combo{position:fixed;top:22%;right:7%;font-size:14px;color:#cfdaea;text-align:right;z-index:10;
-    font-weight:300;opacity:0;transition:opacity .35s ease;pointer-events:none;letter-spacing:.16em}
-  #combo .x{font-size:36px;color:#cfdaea;font-weight:200;letter-spacing:.02em;display:block;margin-top:4px}
-  #combo .tag{font-size:10px;color:#7cc2e6;letter-spacing:.4em;opacity:.7}
+  #combo{position:fixed;top:18%;right:8%;font-size:54px;color:#fff;text-align:right;z-index:10;
+    text-shadow:0 0 24px rgba(255,210,80,0.7);font-weight:300;opacity:0;transition:opacity .25s;pointer-events:none;letter-spacing:.04em}
+  #combo .x{font-size:80px;color:#ffd25a;text-shadow:0 0 32px rgba(255,200,80,0.9)}
+  #combo .tag{font-size:11px;color:#ffe;letter-spacing:.3em;opacity:.8}
   #centermsg{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:20;pointer-events:none;text-align:center}
-  #centermsg .name{font-size:64px;letter-spacing:.32em;color:#e6eef8;font-weight:200;text-shadow:0 0 30px rgba(124,194,230,.35)}
-  #centermsg .sub{font-size:12px;letter-spacing:.5em;color:#7cc2e6;margin-top:16px;opacity:.85}
-  #centermsg .hint{font-size:10px;letter-spacing:.4em;color:#cfdaea;margin-top:32px;opacity:.5}
+  #centermsg .name{font-size:78px;letter-spacing:.32em;color:#fff;font-weight:200;text-shadow:0 0 40px rgba(120,200,255,.6)}
+  #centermsg .sub{font-size:13px;letter-spacing:.5em;color:#6df;margin-top:18px;opacity:.85}
+  #centermsg .hint{font-size:11px;letter-spacing:.4em;color:#fff;margin-top:38px;opacity:.6}
   #menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:30;pointer-events:auto;background:radial-gradient(ellipse at center,rgba(10,16,28,0.0) 0%, rgba(2,4,8,0.6) 70%)}
-  #menu .title{font-size:104px;letter-spacing:.34em;color:#e6eef8;font-weight:200;text-shadow:0 0 40px rgba(124,194,230,0.35)}
-  #menu .title em{font-style:normal;color:#7cc2e6}
-  #menu .tag{font-size:12px;letter-spacing:.6em;color:#7cc2e6;margin-top:18px;opacity:.85}
-  #menu .ctrls{margin-top:54px;display:grid;grid-template-columns:auto auto;gap:8px 22px;font-size:11px;letter-spacing:.18em;color:#aab9cc;opacity:.85}
-  #menu .ctrls b{color:#e6eef8;font-weight:400}
-  #menu .actions{margin-top:46px;display:flex;flex-direction:column;gap:10px;align-items:center}
-  #menu .btn,.modalbtn{padding:13px 32px;border:1px solid rgba(124,194,230,.45);color:#e6eef8;letter-spacing:.36em;font-size:12px;
-    background:transparent;cursor:pointer;font-family:inherit;min-width:280px;transition:background .25s ease, border-color .25s ease, color .25s ease}
-  #menu .btn:hover,.modalbtn:hover{background:rgba(124,194,230,.06);border-color:rgba(124,194,230,.7)}
-  #menu .btn.primary,.modalbtn.primary{border-color:rgba(124,194,230,.7)}
-  #menu .btn.subtle,.modalbtn.subtle{border-color:rgba(124,194,230,.18);color:#8aa0b8}
-  #menu .btn:disabled,.modalbtn:disabled{opacity:.3;cursor:not-allowed}
-  #menu .note{margin-top:46px;font-size:10px;letter-spacing:.4em;color:#46587a;opacity:.7}
-  /* Game Over / Pause modal — calm, no aggressive color */
-  .modal{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:40;pointer-events:auto;
-    background:rgba(4,6,10,0.66);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
-    opacity:0;transition:opacity .35s ease}
-  .modal.show{opacity:1}
-  .modal .title{font-size:42px;letter-spacing:.36em;color:#e6eef8;font-weight:200;text-shadow:0 0 24px rgba(124,194,230,.25)}
-  .modal .sub{font-size:11px;letter-spacing:.5em;color:#7cc2e6;margin-top:14px;opacity:.85}
-  .modal .meta{font-size:11px;letter-spacing:.3em;color:#8aa0b8;margin-top:8px;opacity:.7}
-  .modal .actions{margin-top:38px;display:flex;flex-direction:column;gap:10px;align-items:center}
-  .modal .hint{margin-top:24px;font-size:10px;letter-spacing:.4em;color:#46587a;opacity:.7}
-  /* Settings overlay */
-  #settings{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:25;padding:10px 16px;
-    background:rgba(10,14,22,0.7);border:1px solid rgba(124,194,230,0.18);border-radius:2px;
-    display:flex;gap:18px;align-items:center;font-size:10px;letter-spacing:.3em;color:#8aa0b8;
-    backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px)}
-  #settings label{display:flex;gap:8px;align-items:center;cursor:pointer;user-select:none}
-  #settings input[type=range]{width:90px;accent-color:#7cc2e6}
-  #settings .btnlink{background:none;border:none;color:#7cc2e6;font-family:inherit;font-size:10px;letter-spacing:.3em;cursor:pointer;opacity:.7}
-  #settings .btnlink:hover{opacity:1}
+  #menu .title{font-size:120px;letter-spacing:.34em;color:#fff;font-weight:200;text-shadow:0 0 60px rgba(120,200,255,0.6),0 0 8px #fff}
+  #menu .title em{font-style:normal;color:#6df}
+  #menu .tag{font-size:13px;letter-spacing:.6em;color:#6df;margin-top:18px}
+  #menu .ctrls{margin-top:60px;display:grid;grid-template-columns:auto auto;gap:8px 22px;font-size:11px;letter-spacing:.18em;color:#bcd;opacity:.85}
+  #menu .ctrls b{color:#fff;font-weight:400}
+  #menu .start{margin-top:50px;padding:14px 36px;border:1px solid #6df;color:#fff;letter-spacing:.4em;font-size:14px;
+    background:transparent;cursor:pointer;font-family:inherit;animation:breathe 2.2s ease-in-out infinite}
+  #menu .start:hover{background:rgba(100,200,255,.08);box-shadow:0 0 24px rgba(100,200,255,.25)}
+  @keyframes breathe{0%,100%{box-shadow:0 0 0 rgba(100,200,255,0)}50%{box-shadow:0 0 22px rgba(100,200,255,.4)}}
+  #menu .note{position:absolute;bottom:30px;font-size:10px;letter-spacing:.4em;color:#46587a}
   .hidden{display:none !important}
   .fadeout{animation:fade .6s ease forwards}
   @keyframes fade{to{opacity:0;transform:translateY(-12px)}}
   #flash{position:fixed;inset:0;pointer-events:none;z-index:8;background:#fff;opacity:0}
   #freeze{position:fixed;inset:0;pointer-events:none;z-index:9;background:rgba(0,200,255,0.0);mix-blend-mode:screen}
-  #cursor{position:fixed;width:36px;height:36px;pointer-events:none;z-index:11;transform:translate(-50%,-50%);
-    mix-blend-mode:screen;opacity:.85}
-  .modal,#menu{cursor:default}
-  .modal button,#menu button{cursor:pointer}
+  #cursor{position:fixed;width:46px;height:46px;pointer-events:none;z-index:11;transform:translate(-50%,-50%);
+    mix-blend-mode:screen}
 </style>
 </head>
 <body>
@@ -154,35 +125,10 @@
     <b>LEFT CLICK</b><span>FIRE</span>
     <b>SHIFT</b><span>DASH</span>
     <b>SPACE</b><span>RELEASE TIME ECHO</span>
-    <b>P</b><span>PAUSE</span>
+    <b>R</b><span>RESTART</span>
   </div>
-  <div class="actions">
-    <button class="btn primary" id="btn-continue">CONTINUE</button>
-    <button class="btn" id="btn-newgame">NEW GAME</button>
-    <button class="btn subtle" id="btn-reset">RESET PROGRESS</button>
-  </div>
-  <div class="note">A CALM TIME-ACTION DEMO</div>
-</div>
-
-<!-- Game Over / Pause modal — never freezes the game loop, just overlays choices -->
-<div id="gameover" class="modal" style="display:none">
-  <div class="title" id="go-title">TIME ENDS</div>
-  <div class="sub" id="go-sub">REWIND AND TRY AGAIN</div>
-  <div class="meta" id="go-meta"></div>
-  <div class="actions">
-    <button class="modalbtn primary" id="go-retry">RETRY LEVEL</button>
-    <button class="modalbtn" id="go-continue">CONTINUE FROM SAVE</button>
-    <button class="modalbtn subtle" id="go-restart">RESTART FROM WAVE 01</button>
-    <button class="modalbtn subtle" id="go-menu">MAIN MENU</button>
-  </div>
-  <div class="hint">PRESS  R  TO RETRY · ESC FOR MENU</div>
-</div>
-
-<!-- Top centre quick settings: volume + reduced motion + pause -->
-<div id="settings" class="hidden">
-  <label title="Master volume"><span>VOL</span><input id="cfg-vol" type="range" min="0" max="1" step="0.05" value="0.55"></label>
-  <label title="Reduced motion / less flashing"><input id="cfg-calm" type="checkbox" checked><span>CALM</span></label>
-  <button class="btnlink" id="cfg-pause">PAUSE · P</button>
+  <button class="start" id="startbtn">ENGAGE</button>
+  <div class="note">A CINEMATIC TIME-ACTION DEMO</div>
 </div>
 
 <script>
@@ -202,42 +148,27 @@ const lerp = (a,b,t)=> a + (b-a)*t;
 const clamp = (v,a,b)=> v<a?a:v>b?b:v;
 const dist = (a,b)=> Math.hypot(a.x-b.x, a.y-b.y);
 
-/* ============================== AUDIO =====================================
-   Calm Audio Manager
-   - Master volume defaults low (~0.45). User-adjustable.
-   - Everything routes through a global lowpass (timeFilter) that follows
-     timeScale: when time slows, the soundscape softens too.
-   - Drone is much quieter, single sine, lazily on.
-   - Throttle map prevents the same sfx from stacking & cause "tinnitus" loops.
-   - All bursts have soft attack + exponential release; no clicks.
-   ========================================================================== */
+/* ============================== AUDIO ====================================== */
 let AC = null;
-let masterGain, timeFilter, droneOsc, droneGain;
-let USER_VOL = 0.55;
-let CALM_MODE = true;
-const _sfxLast = {};
 function ensureAudio(){
-  if (AC) return;
-  AC = new (window.AudioContext||window.webkitAudioContext)();
-  masterGain = AC.createGain(); masterGain.gain.value = USER_VOL * 0.75;
-  // Soft master compressor smooths transients and prevents harsh peaks during chaos
-  const comp = AC.createDynamicsCompressor();
-  comp.threshold.value = -22; comp.knee.value = 18; comp.ratio.value = 4;
-  comp.attack.value = 0.012; comp.release.value = 0.18;
-  // Gentle highshelf cut: tame piercing frequencies above 7kHz
-  const hi = AC.createBiquadFilter(); hi.type='highshelf'; hi.frequency.value = 6500; hi.gain.value = -8;
-  // Low-pass for time-dilation muffling
-  timeFilter = AC.createBiquadFilter(); timeFilter.type='lowpass'; timeFilter.frequency.value = 6800; timeFilter.Q.value = 0.4;
-  timeFilter.connect(hi); hi.connect(comp); comp.connect(masterGain); masterGain.connect(AC.destination);
-  // Single very-quiet sub-drone (felt, not heard) — adds depth without fatigue
-  droneOsc = AC.createOscillator(); droneOsc.type='sine'; droneOsc.frequency.value = 58;
-  droneGain = AC.createGain(); droneGain.gain.value = 0.0;
-  droneOsc.connect(droneGain); droneGain.connect(timeFilter); droneOsc.start();
+  if (!AC){
+    AC = new (window.AudioContext||window.webkitAudioContext)();
+    masterGain = AC.createGain(); masterGain.gain.value = 0.7; masterGain.connect(AC.destination);
+    // Low-pass filter for time-freeze muffling
+    timeFilter = AC.createBiquadFilter(); timeFilter.type='lowpass'; timeFilter.frequency.value = 22000;
+    timeFilter.connect(masterGain);
+    // Ambient drone
+    droneOsc = AC.createOscillator(); droneOsc.type='sawtooth'; droneOsc.frequency.value = 55;
+    droneGain = AC.createGain(); droneGain.gain.value = 0.0;
+    droneOsc.connect(droneGain); droneGain.connect(timeFilter); droneOsc.start();
+    // Sub bass pad
+    padOsc = AC.createOscillator(); padOsc.type='sine'; padOsc.frequency.value = 110;
+    padGain = AC.createGain(); padGain.gain.value = 0.0;
+    padOsc.connect(padGain); padGain.connect(timeFilter); padOsc.start();
+  }
 }
-function setVol(v){ USER_VOL = v; if (masterGain) masterGain.gain.setTargetAtTime(USER_VOL * 0.75, AC.currentTime, 0.08); }
-
-// Soft, click-free tone with attack envelope.
-function tone(freq, dur, type='sine', vol=0.06, attack=0.012){
+let masterGain, timeFilter, droneOsc, droneGain, padOsc, padGain;
+function tone(freq, dur, type='square', vol=0.10, attack=0.005){
   if (!AC) return;
   const o = AC.createOscillator(), g = AC.createGain();
   o.type = type; o.frequency.value = freq;
@@ -247,39 +178,30 @@ function tone(freq, dur, type='sine', vol=0.06, attack=0.012){
   o.connect(g); g.connect(timeFilter);
   o.start(); o.stop(AC.currentTime + dur + 0.02);
 }
-// Filtered noise burst — capped low cutoff so it never bites
-function noise(dur, vol=0.05, fc=1200){
+function noise(dur, vol=0.1, fc=4000){
   if (!AC) return;
-  const buf = AC.createBuffer(1, Math.max(1, AC.sampleRate*dur)|0, AC.sampleRate);
+  const buf = AC.createBuffer(1, AC.sampleRate*dur, AC.sampleRate);
   const d = buf.getChannelData(0);
   for (let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
   const src = AC.createBufferSource(); src.buffer = buf;
-  const flt = AC.createBiquadFilter(); flt.type='lowpass'; flt.frequency.value = Math.min(fc, 2200);
+  const flt = AC.createBiquadFilter(); flt.type='lowpass'; flt.frequency.value = fc;
   const g = AC.createGain(); g.gain.value = vol;
   src.connect(flt); flt.connect(g); g.connect(timeFilter); src.start();
 }
-// Throttle: drop a sfx if its name fired in last `ms` ms (audio fatigue guard)
-function throttle(name, ms){
-  const now = performance.now();
-  if (_sfxLast[name] && now - _sfxLast[name] < ms) return false;
-  _sfxLast[name] = now; return true;
-}
 const Snd = {
-  // Soft pluck instead of bright square pop
-  shoot(){ if (!throttle('shoot', 60)) return; tone(520, 0.10, 'triangle', 0.045); tone(260, 0.16, 'sine', 0.03); },
-  enemyShoot(){ if (!throttle('enemyShoot', 70)) return; tone(180, 0.16, 'sine', 0.028); },
-  hit(){ if (!throttle('hit', 50)) return; tone(140, 0.18, 'sine', 0.06); },
-  kill(){ if (!throttle('kill', 120)) return; tone(80, 0.30, 'sine', 0.09); tone(160, 0.20, 'triangle', 0.04); },
-  dash(){ tone(640, 0.12, 'sine', 0.05); tone(420, 0.18, 'sine', 0.03); },
-  dryFire(){ if (!throttle('dry', 220)) return; tone(220, 0.05, 'triangle', 0.025); },
-  reload(){ tone(420, 0.06, 'sine', 0.035); setTimeout(()=>tone(560,0.08,'sine',0.04),120); },
-  glass(){ if (!throttle('glass', 80)) return; tone(880, 0.12, 'triangle', 0.04); noise(0.06, 0.025, 1800); },
-  echo(){ tone(440,0.30,'sine',0.06); setTimeout(()=>tone(660,0.30,'sine',0.04),120); },
-  rewind(){ tone(660,0.30,'sine',0.05); tone(440,0.40,'sine',0.04); },
-  wave(){ tone(220,0.30,'sine',0.05); setTimeout(()=>tone(330,0.30,'sine',0.045),200); setTimeout(()=>tone(440,0.40,'sine',0.05),420); },
-  hurt(){ tone(110,0.22,'sine',0.08); noise(0.06,0.04,800); },
-  shockwave(){ tone(55,0.5,'sine',0.07); noise(0.18, 0.05, 600); },
-  click(){ tone(700, 0.05, 'sine', 0.035); }
+  shoot(){ tone(1100, 0.06, 'square', 0.09); tone(550,0.10,'sawtooth',0.05); noise(0.05,0.06,8000); },
+  enemyShoot(){ tone(260, 0.10, 'sawtooth', 0.045); },
+  hit(){ tone(160, 0.18, 'sawtooth', 0.12); noise(0.08, 0.08, 1200); },
+  kill(){ tone(80, 0.25, 'sawtooth', 0.18); tone(110,0.20,'square',0.10); noise(0.18,0.10,800); },
+  dash(){ tone(1500, 0.08, 'sine', 0.07); tone(900,0.10,'triangle',0.05); },
+  dryFire(){ tone(280, 0.05, 'triangle', 0.06); },
+  reload(){ tone(520, 0.05, 'square', 0.06); setTimeout(()=>tone(740,0.07,'square',0.07),90); setTimeout(()=>tone(980,0.06,'square',0.07),180); },
+  glass(){ noise(0.10, 0.10, 12000); tone(2400,0.05,'triangle',0.05); },
+  echo(){ tone(440,0.20,'sine',0.10); tone(660,0.18,'sine',0.08); tone(880,0.16,'triangle',0.06); },
+  rewind(){ tone(880,0.25,'sine',0.08); tone(660,0.25,'sine',0.06); },
+  wave(){ tone(220,0.20,'square',0.10); setTimeout(()=>tone(330,0.20,'square',0.10),120); setTimeout(()=>tone(440,0.30,'square',0.12),280); },
+  hurt(){ tone(140,0.18,'sawtooth',0.14); noise(0.10,0.10,800); },
+  shockwave(){ tone(55,0.5,'sawtooth',0.12); noise(0.30,0.15,400); }
 };
 
 /* ============================ INPUT ======================================== */
@@ -293,7 +215,7 @@ addEventListener('mouseup', e=>{ if(e.button===0) mouseDown=false; });
 addEventListener('contextmenu', e=>e.preventDefault());
 
 /* ============================ STATE ======================================== */
-let STATE = 'menu'; // menu | intro | playing | between | dead | paused | victory
+let STATE = 'menu'; // menu | intro | playing | dead | victory
 let timeScale = 0.02, targetTime = 0.02;
 let camX = 0, camY = 0, camTX = 0, camTY = 0, camZoom = 1, camZoomT = 1;
 let shake = 0, shakeX = 0, shakeY = 0;
@@ -306,32 +228,6 @@ let recordBuffer = []; // rolling player position buffer for "time echo" replay
 const ARENA = { w: 2200, h: 1400 };
 
 let player, bullets, enemies, particles, glassWalls, props, walls, shockwaves, debris, ragdolls, decoys, hitMarks;
-
-/* ============================ SAVE SYSTEM ==================================
-   localStorage-backed progress + preferences. Defensive parse: corrupt JSON
-   falls back to defaults silently. Writes are throttled (only at wave start
-   and on settings change) so there is zero lag on the hot path.
-   ========================================================================== */
-const SAVE_KEY = 'timecast.v2.save';
-const DEFAULT_SAVE = { version: 2, currentWave: 0, maxWave: 0, volume: 0.55, calm: true, kills: 0 };
-let SAVE = { ...DEFAULT_SAVE };
-function loadSave(){
-  try{
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw){ SAVE = { ...DEFAULT_SAVE }; return; }
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && Number.isFinite(parsed.maxWave)){
-      SAVE = { ...DEFAULT_SAVE, ...parsed };
-    } else { SAVE = { ...DEFAULT_SAVE }; }
-  } catch(_e){ SAVE = { ...DEFAULT_SAVE }; }
-  USER_VOL = SAVE.volume; CALM_MODE = !!SAVE.calm;
-}
-function writeSave(){
-  try{ localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch(_e){}
-}
-function resetSave(){ SAVE = { ...DEFAULT_SAVE }; writeSave(); }
-function hasSave(){ return SAVE && SAVE.maxWave > 0; }
-loadSave();
 
 /* ============================ ENTITIES INIT ================================ */
 function newPlayer(){
@@ -520,61 +416,6 @@ function pushOut(cx,cy,cr,rx,ry,rw,rh){
   const dx = cx-nx, dy = cy-ny, d = Math.hypot(dx,dy);
   if (d>0 && d<cr){ const pen = cr-d; return {x:cx + dx/d*pen, y:cy + dy/d*pen, nx:dx/d, ny:dy/d}; }
   return null;
-}
-/* Robust circle-vs-AABB resolver: choose the smallest axis penetration.
-   Returns true if a collision was resolved on this axis (X or Y). */
-function resolveAxis(entity, axis){
-  for (const w of walls){
-    if (!circleRect(entity.x, entity.y, entity.r, w.x, w.y, w.w, w.h)) continue;
-    const nx = clamp(entity.x, w.x, w.x+w.w);
-    const ny = clamp(entity.y, w.y, w.y+w.h);
-    if (axis === 'x'){
-      // Push the player back out along X based on which side they came from
-      if (entity.x > w.x + w.w/2) entity.x = w.x + w.w + entity.r + 0.01;
-      else                        entity.x = w.x - entity.r - 0.01;
-      if (entity.vx) entity.vx = 0;
-    } else {
-      if (entity.y > w.y + w.h/2) entity.y = w.y + w.h + entity.r + 0.01;
-      else                        entity.y = w.y - entity.r - 0.01;
-      if (entity.vy) entity.vy = 0;
-    }
-  }
-  // Glass + props: solid until broken
-  for (const g of glassWalls){
-    if (g.hp <= 0) continue;
-    if (!circleRect(entity.x, entity.y, entity.r, g.x, g.y, g.w, g.h)) continue;
-    if (axis === 'x'){
-      if (entity.x > g.x + g.w/2) entity.x = g.x + g.w + entity.r + 0.01;
-      else                        entity.x = g.x - entity.r - 0.01;
-      if (entity.vx) entity.vx = 0;
-    } else {
-      if (entity.y > g.y + g.h/2) entity.y = g.y + g.h + entity.r + 0.01;
-      else                        entity.y = g.y - entity.r - 0.01;
-      if (entity.vy) entity.vy = 0;
-    }
-  }
-  for (const pr of props){
-    if (pr.broken) continue;
-    if (Math.hypot(entity.x - pr.x, entity.y - pr.y) >= entity.r + pr.r) continue;
-    const ang = Math.atan2(entity.y - pr.y, entity.x - pr.x);
-    if (axis === 'x'){ entity.x = pr.x + Math.cos(ang) * (entity.r + pr.r + 0.01); if (entity.vx) entity.vx = 0; }
-    else             { entity.y = pr.y + Math.sin(ang) * (entity.r + pr.r + 0.01); if (entity.vy) entity.vy = 0; }
-  }
-}
-/* Substepped, axis-separated movement.
-   Splits the move into N steps so even a 720 px/s dash never tunnels through
-   a 30 px wall at 60 fps (max step ≈ entity.r * 0.6). */
-function moveAndCollide(entity, dx, dy){
-  const mag = Math.hypot(dx, dy);
-  const stepLimit = Math.max(2, entity.r * 0.6);
-  const steps = Math.max(1, Math.ceil(mag / stepLimit));
-  const sx = dx / steps, sy = dy / steps;
-  for (let i = 0; i < steps; i++){
-    entity.x += sx;
-    resolveAxis(entity, 'x');
-    entity.y += sy;
-    resolveAxis(entity, 'y');
-  }
 }
 function segHitsRect(x1,y1,x2,y2,rx,ry,rw,rh){
   // Liang-Barsky
@@ -876,20 +717,19 @@ function damageEnemy(e, src, isCrit){
     showCombo();
     Snd.kill();
     const bossKill = !!e.isBoss;
-    // Calm mode: smaller hitstop, gentler shake, no white flash on regular kills
-    hitstop = bossKill ? 0.18 : 0.05 + Math.min(0.08, combo*0.003);
-    shake = Math.max(shake, bossKill ? 0.45 : (CALM_MODE ? 0.18 : 0.30));
-    flashAlpha = Math.max(flashAlpha, bossKill ? (CALM_MODE ? 0.22 : 0.4) : 0);
-    camZoomT = bossKill ? 1.08 : 1.04; setTimeout(()=>{ camZoomT = 1.0; }, bossKill ? 240 : 110);
+    hitstop = bossKill ? 0.22 : 0.07 + Math.min(0.12, combo*0.005);
+    shake = Math.max(shake, bossKill ? 0.7 : 0.35);
+    flashAlpha = Math.max(flashAlpha, bossKill ? 0.5 : 0.18);
+    camZoomT = bossKill ? 1.12 : 1.06; setTimeout(()=>{ camZoomT = 1.0; }, bossKill ? 260 : 120);
     spawnRagdoll(e);
-    const partCount = CALM_MODE ? (bossKill ? 42 : 16) : (bossKill ? 80 : 28);
+    const partCount = bossKill ? 80 : 28;
     for (let i=0;i<partCount;i++){
-      const a = rnd(0, TAU), s = rnd(80, bossKill ? 400 : 280);
-      particles.push({x:e.x,y:e.y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life: rnd(0.4,bossKill?1.4:0.8), max:1.4, r:rnd(1.2,bossKill?4:2.8), color:bossKill?'#ffae3a':'#ff8a9a', kind:'spark'});
+      const a = rnd(0, TAU), s = rnd(120, bossKill ? 520 : 380);
+      particles.push({x:e.x,y:e.y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life: rnd(0.4,bossKill?1.6:0.9), max:1.6, r:rnd(1.5,bossKill?5:3.5), color:bossKill?'#ffae3a':'#ff5a72', kind:'spark'});
     }
-    for (let i=0;i<(bossKill ? (CALM_MODE?18:28) : (CALM_MODE?6:10));i++){
-      const a = rnd(0,TAU), s=rnd(60,bossKill?320:240);
-      debris.push({x:e.x,y:e.y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, av:rnd(-7,7), rot:rnd(0,TAU), w:rnd(2,bossKill?5:4),h:rnd(2,bossKill?7:6), life:rnd(0.8,2.0), color:bossKill?'#d99a5a':'#c98a98'});
+    for (let i=0;i<(bossKill?28:10);i++){
+      const a = rnd(0,TAU), s=rnd(60,bossKill?340:260);
+      debris.push({x:e.x,y:e.y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, av:rnd(-8,8), rot:rnd(0,TAU), w:rnd(2,bossKill?6:5),h:rnd(2,bossKill?8:7), life:rnd(0.8,2.2), color:bossKill?'#ffae3a':'#ff8a9a'});
     }
     // Splitter: spawn minions on death
     if (e.type==='splitter' && e.generation === 0){
@@ -931,19 +771,14 @@ function spawnRagdoll(e){
 function damagePlayer(amount=1){
   if (player.iframes > 0 || !player.alive) return;
   player.hp -= amount; player.iframes = 1.0;
-  // Calm mode: gentle red flash and short, soft shake — never blinding
-  damageFlash = CALM_MODE ? 0.35 : 0.6;
-  shake = Math.max(shake, CALM_MODE ? 0.28 : 0.5);
+  damageFlash = 0.6; shake = Math.max(shake, 0.5);
   Snd.hurt();
   if (player.hp <= 0){
     player.alive = false; player.deathT = 0;
     STATE = 'dead';
-    Snd.rewind();
-    // Brief death poof — restrained particle burst
-    const N = CALM_MODE ? 24 : 60;
-    for (let i=0;i<N;i++){ const a=rnd(0,TAU), s=rnd(60,240); particles.push({x:player.x,y:player.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rnd(0.5,1.2),max:1.2,r:rnd(1.2,2.6),color:PALETTE.player,kind:'spark'}); }
-    // Open Game Over modal after a short beat so the player can see the death moment
-    setTimeout(()=> openGameOver('TIME ENDS', 'REWIND AND TRY AGAIN'), 700);
+    showCenter('TIME ENDS', 'PRESS R TO REWIND', '');
+    Snd.kill();
+    for (let i=0;i<60;i++){ const a=rnd(0,TAU), s=rnd(80,360); particles.push({x:player.x,y:player.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rnd(0.6,1.5),max:1.5,r:rnd(1.5,3.5),color:PALETTE.player,kind:'spark'}); }
   }
 }
 
@@ -988,11 +823,12 @@ function update(realDt){
   // Smooth time
   timeScale = lerp(timeScale, targetTime, Math.min(1, realDt * 14));
   timeScale = Math.max(timeScale, timeFloor);
-  // Audio feedback: filter cutoff & drone gain follow time. Calm: keep gentle.
+  // Audio feedback: filter cutoff & drone gain follow time
   if (AC){
-    timeFilter.frequency.setTargetAtTime(900 + timeScale*5800, AC.currentTime, 0.20);
+    timeFilter.frequency.setTargetAtTime(220 + timeScale*16000, AC.currentTime, 0.08);
     const intensity = Math.min(1, enemies.filter(e=>e.alive).length / 6);
-    droneGain.gain.setTargetAtTime(0.012 + 0.018*timeScale + 0.012*intensity, AC.currentTime, 0.4);
+    droneGain.gain.setTargetAtTime(0.02 + 0.05*timeScale + 0.03*intensity, AC.currentTime, 0.2);
+    padGain.gain.setTargetAtTime(0.015 + 0.04*timeScale*intensity, AC.currentTime, 0.2);
   }
 
   const ts = timeScale;
@@ -1060,17 +896,25 @@ function update(realDt){
       player.vy = lerp(player.vy, targetVY, Math.min(1, dt * accel/380));
     }
 
-    // Movement is on REAL time so input feels crisp regardless of time-scale.
-    // ROBUST COLLISION: split the frame into small substeps (max ~6 px per step)
-    // and resolve each axis independently against AABB walls + glass + props.
-    // This eliminates tunnelling during rapid input or dash and prevents the
-    // diagonal-corner clip-out that caused the "stuck outside maze" bug.
-    moveAndCollide(player, player.vx * dt, player.vy * dt);
+    // Movement is on REAL time so input feels crisp regardless of time-scale
+    player.x += player.vx * dt;
+    player.y += player.vy * dt;
 
-    // Arena hard clamp as a final safety net (cannot end up outside playable region)
-    const margin = player.r + 1;
-    player.x = clamp(player.x, margin, ARENA.w - margin);
-    player.y = clamp(player.y, margin, ARENA.h - margin);
+    // Wall collide
+    for (const w of walls){
+      const p = pushOut(player.x, player.y, player.r, w.x, w.y, w.w, w.h);
+      if (p){ player.x = p.x; player.y = p.y; player.vx *= 0.6; player.vy *= 0.6; }
+    }
+    for (const g of glassWalls){
+      if (g.hp <= 0) continue;
+      const p = pushOut(player.x, player.y, player.r, g.x, g.y, g.w, g.h);
+      if (p){ player.x = p.x; player.y = p.y; player.vx *= 0.5; player.vy *= 0.5; }
+    }
+    for (const pr of props){
+      if (pr.broken) continue;
+      const p = pushOut(player.x, player.y, player.r, pr.x-pr.r, pr.y-pr.r, pr.r*2, pr.r*2);
+      if (p){ player.x = p.x; player.y = p.y; pr.vx += player.vx*0.04*dt; pr.vy += player.vy*0.04*dt; }
+    }
 
     // Reload
     if (player.reloading){
@@ -1088,15 +932,14 @@ function update(realDt){
         fireBullet('player', player.x + bx*22, player.y + by*22, bx*900, by*900, {ricochet:1});
         player.ammo--; player.shootCd = 0.18;
         Snd.shoot();
-        player.vx -= bx*40; player.vy -= by*40;
-        shake = Math.max(shake, CALM_MODE ? 0.04 : 0.10);
-        // Muzzle flash particles — fewer, quieter
-        const N = CALM_MODE ? 3 : 6;
-        for (let i=0;i<N;i++){
-          const a = player.angle + rnd(-0.25,0.25);
-          particles.push({x:player.x+bx*22,y:player.y+by*22,vx:Math.cos(a)*rnd(60,180),vy:Math.sin(a)*rnd(60,180),life:0.14,max:0.14,r:1.5,color:'#cfe6ff',kind:'spark'});
+        player.vx -= bx*60; player.vy -= by*60;
+        shake = Math.max(shake, 0.10);
+        // Muzzle flash particles
+        for (let i=0;i<6;i++){
+          const a = player.angle + rnd(-0.3,0.3);
+          particles.push({x:player.x+bx*22,y:player.y+by*22,vx:Math.cos(a)*rnd(80,220),vy:Math.sin(a)*rnd(80,220),life:0.18,max:0.18,r:2,color:'#fff7c6',kind:'spark'});
         }
-        particles.push({x:player.x+bx*22,y:player.y+by*22,vx:0,vy:0,life:0.08,max:0.08,r:14,color:'#cfe6ff',kind:'flash'});
+        particles.push({x:player.x+bx*22,y:player.y+by*22,vx:0,vy:0,life:0.10,max:0.10,r:18,color:'#fff7c6',kind:'flash'});
       } else if (player.ammo <= 0 && !player.reloading) Snd.dryFire();
     }
 
@@ -1496,15 +1339,16 @@ function update(realDt){
   const alive = enemies.filter(e=>e.alive).length;
   if (alive === 0 && STATE === 'playing'){
     STATE = 'between';
-    // Auto-save progress at wave completion (only place writes happen during play)
-    SAVE.maxWave = Math.max(SAVE.maxWave, wave+1);
-    SAVE.currentWave = wave+1;
-    SAVE.kills = kills;
-    writeSave();
     setTimeout(()=>{
-      if (wave+1 >= WAVES.length){ STATE='victory'; showCenter('VICTORY','TIME IS YOURS',''); openGameOver('VICTORY', 'YOU MASTERED TIME'); }
+      if (wave+1 >= WAVES.length){ STATE='victory'; showCenter('VICTORY','TIME IS YOURS',''); }
       else { startWave(wave+1); STATE='playing'; }
     }, 1100);
+  }
+
+  // R to restart
+  if (keys.KeyR){
+    keys.KeyR = false;
+    startGame();
   }
 
   mouseFired = false;
@@ -2172,97 +2016,21 @@ function showCenter(name, sub, hint){
   setTimeout(()=>{ el.classList.add('fadeout'); setTimeout(()=> el.classList.add('hidden'), 600); }, 1800);
 }
 
-/* ============================ GAME LIFECYCLE =============================== */
-function startGame(fromWave = 0){
-  closeGameOver();
-  hideMenu();
+/* ============================ GAME LIFECYCLE ================================ */
+function startGame(){
   player = newPlayer();
-  kills = 0; combo = 0; maxCombo = 0;
+  kills = 0; wave = 0; combo = 0; maxCombo = 0;
   STATE = 'playing';
-  // Flush any latent input from the click that triggered this restart
-  mouseDown = false; mouseFired = false;
-  for (const k in keys) keys[k] = false;
-  // Auto-save at the start of every wave; throttled by infrequent calls
-  SAVE.currentWave = fromWave;
-  SAVE.maxWave = Math.max(SAVE.maxWave, fromWave);
-  writeSave();
-  startWave(fromWave);
-}
-function continueFromSave(){ startGame(Math.min(SAVE.maxWave, WAVES.length-1)); }
-function retryCurrentLevel(){ startGame(wave); }
-
-/* Game Over modal control. The game LOOP keeps running underneath so visuals
-   and audio stay alive (ragdolls settle, time-flow keeps drifting) — only
-   STATE is set to 'dead' which blocks gameplay logic. */
-function openGameOver(title, sub){
-  const m = document.getElementById('gameover');
-  document.getElementById('go-title').textContent = title || 'TIME ENDS';
-  document.getElementById('go-sub').textContent = sub || 'REWIND AND TRY AGAIN';
-  document.getElementById('go-meta').textContent = `WAVE ${String(wave+1).padStart(2,'0')} · KILLS ${kills} · MAX CHAIN ×${maxCombo}`;
-  // Continue button disabled unless we have meaningful save progress past the current wave
-  document.getElementById('go-continue').disabled = !(SAVE.maxWave > 0);
-  m.style.display = 'flex';
-  // Use setTimeout instead of RAF so background-throttled tabs still get the
-  // transition class applied. Tiny delay is enough to trigger CSS transition.
-  setTimeout(()=> m.classList.add('show'), 20);
-}
-function closeGameOver(){
-  const m = document.getElementById('gameover');
-  m.classList.remove('show');
-  setTimeout(()=>{ m.style.display = 'none'; }, 280);
-}
-function showMenu(){
-  STATE = 'menu';
-  closeGameOver();
-  document.getElementById('menu').classList.remove('hidden');
-  document.getElementById('settings').classList.add('hidden');
-  document.getElementById('hud').style.display = 'none';
-  document.getElementById('cursor').style.display = 'none';
-  document.getElementById('btn-continue').disabled = !hasSave();
-  document.getElementById('btn-continue').textContent = hasSave() ? `CONTINUE · WAVE ${String(SAVE.maxWave+1).padStart(2,'0')}` : 'CONTINUE';
-}
-function hideMenu(){
   document.getElementById('menu').classList.add('hidden');
-  document.getElementById('settings').classList.remove('hidden');
-  document.getElementById('hud').style.display = '';
-  document.getElementById('cursor').style.display = '';
+  startWave(0);
 }
 
-function togglePause(){
-  if (STATE === 'playing'){ STATE = 'paused'; openGameOver('PAUSED', 'BREATHE'); }
-  else if (STATE === 'paused'){ STATE = 'playing'; closeGameOver(); }
-}
-
-/* ---- Wire up menu + modal + settings UI ---- */
-function wireUI(){
-  document.getElementById('btn-newgame').addEventListener('click', ()=>{ ensureAudio(); Snd.click(); startGame(0); });
-  document.getElementById('btn-continue').addEventListener('click', ()=>{ if (!hasSave()) return; ensureAudio(); Snd.click(); continueFromSave(); });
-  document.getElementById('btn-reset').addEventListener('click', ()=>{ resetSave(); showMenu(); });
-
-  document.getElementById('go-retry').addEventListener('click', ()=>{ Snd.click(); retryCurrentLevel(); });
-  document.getElementById('go-continue').addEventListener('click', ()=>{ if (!hasSave()) return; Snd.click(); continueFromSave(); });
-  document.getElementById('go-restart').addEventListener('click', ()=>{ Snd.click(); startGame(0); });
-  document.getElementById('go-menu').addEventListener('click', ()=>{ Snd.click(); showMenu(); });
-
-  const vol = document.getElementById('cfg-vol'); vol.value = SAVE.volume;
-  vol.addEventListener('input', ()=>{ SAVE.volume = parseFloat(vol.value); setVol(SAVE.volume); writeSave(); });
-  const calm = document.getElementById('cfg-calm'); calm.checked = !!SAVE.calm;
-  calm.addEventListener('change', ()=>{ SAVE.calm = !!calm.checked; CALM_MODE = SAVE.calm; writeSave(); });
-  document.getElementById('cfg-pause').addEventListener('click', ()=> togglePause());
-}
-wireUI();
-showMenu();
-
+document.getElementById('startbtn').addEventListener('click', ()=>{
+  ensureAudio();
+  startGame();
+});
 addEventListener('keydown', e=>{
-  if (e.code==='Enter' && STATE==='menu'){ ensureAudio(); startGame(0); }
-  if (e.code==='KeyP' && STATE!=='menu') togglePause();
-  if (e.code==='Escape'){
-    if (STATE==='playing' || STATE==='paused' || STATE==='dead') showMenu();
-  }
-  // R: quick retry from anywhere except menu
-  if (e.code==='KeyR' && (STATE==='dead' || STATE==='playing' || STATE==='paused')){
-    keys.KeyR = false; retryCurrentLevel();
-  }
+  if (e.code==='Enter' && STATE==='menu'){ ensureAudio(); startGame(); }
 });
 
 /* ============================ MAIN LOOP ===================================== */
