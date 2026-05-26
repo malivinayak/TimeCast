@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 <title>TIMECAST</title>
 <script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js"></script>
+<script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;overflow:hidden;background:#06080d;color:#cfdaea;font-family:"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;-webkit-font-smoothing:antialiased}
@@ -278,6 +279,42 @@ const Poki = {
 };
 Poki.loadingStart();
 
+/* ============================ CRAZYGAMES SDK ============================== */
+/* Safe wrapper: every call try/catch'd. CrazyGames SDK v3 self-detects whether
+   it is running on a CrazyGames domain; on other domains all calls throw, which
+   the try/catch swallows. Both SDKs coexist safely — each only activates on
+   its own platform. */
+const CG = {
+  init:          () => { try { window.CrazyGames.SDK.init(); } catch(_){} },
+  loadingStart:  () => { try { window.CrazyGames.SDK.game.loadingStart(); } catch(_){} },
+  loadingStop:   () => { try { window.CrazyGames.SDK.game.loadingStop(); } catch(_){} },
+  gameplayStart: () => { try { window.CrazyGames.SDK.game.gameplayStart(); } catch(_){} },
+  gameplayStop:  () => { try { window.CrazyGames.SDK.game.gameplayStop(); } catch(_){} },
+  requestAd: (cb) => {
+    try {
+      const callbacks = {
+        adFinished: () => cb(),
+        adError:    () => cb(),
+        adStarted:  () => {}
+      };
+      window.CrazyGames.SDK.ad.requestAd('midgame', callbacks);
+    } catch(_){ cb(); }
+  }
+};
+// Wait for CrazyGames SDK to actually be ready before calling it.
+// The SDK script tag loads synchronously, but the SDK takes a moment to
+// register itself on window.CrazyGames. Retry every 50ms for up to 1s
+// until it's there, then fire the loading hooks. Try/catch in the wrapper
+// still protects us on non-CrazyGames domains.
+(function initCG(retries = 20){
+  if (window.CrazyGames && window.CrazyGames.SDK && typeof window.CrazyGames.SDK.init === 'function'){
+    CG.init();
+    CG.loadingStart();
+  } else if (retries > 0){
+    setTimeout(() => initCG(retries - 1), 50);
+  }
+})();
+
 /* ============================ TOUCH FLAG =================================== */
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
@@ -522,15 +559,24 @@ const WAVES = [
 
 function startWave(idx){
   wave = idx; combo = 0; comboTimer = 0;
-  const W = WAVES[idx]; if (!W){ STATE='victory'; Poki.gameplayStop(); victoryAnim = 0; showCenter('VICTORY', 'TIME IS YOURS', ''); return; }
+  const W = WAVES[idx]; if (!W){ STATE='victory'; Poki.gameplayStop(); CG.gameplayStop(); victoryAnim = 0; showCenter('VICTORY', 'TIME IS YOURS', ''); return; }
   // Commercial break between waves (never on wave 0, never on a victory)
   if (idx > 0 && !window.__skipAd){
     window.__skipAd = true;
     Poki.gameplayStop();
-    Poki.commercialBreak(() => {
+    CG.gameplayStop();
+    // Both SDKs are safe to call — each only serves an ad on its own platform's
+    // domain; the other becomes a no-op. We chain them so we never play two ads.
+    const resumeWave = () => {
       Poki.gameplayStart();
+      CG.gameplayStart();
       startWave(idx);          // re-enters with __skipAd === true → falls through
       window.__skipAd = false; // reset for next wave transition
+    };
+    // Try Poki first; if not on Poki domain, the callback fires immediately and
+    // we then try CrazyGames; if not on CG either, callback fires and we resume.
+    Poki.commercialBreak(() => {
+      CG.requestAd(resumeWave);
     });
     return;
   }
@@ -1438,6 +1484,7 @@ function damagePlayer(amount=1){
     player.alive = false; player.deathT = 0;
     STATE = 'dead';
     Poki.gameplayStop();
+    CG.gameplayStop();
     Snd.rewind();
     // Brief death poof — restrained particle burst
     const N = CALM_MODE ? 24 : 60;
@@ -3067,6 +3114,7 @@ function startGame(fromWave = 0){
   kills = 0; combo = 0; maxCombo = 0;
   STATE = 'playing';
   Poki.gameplayStart();
+  CG.gameplayStart();
   // Flush any latent input from the click that triggered this restart
   mouseDown = false; mouseFired = false;
   for (const k in keys) keys[k] = false;
@@ -3088,6 +3136,7 @@ function retryCurrentLevel(){ startGame(wave); }
    STATE is set to 'dead' which blocks gameplay logic. */
 function openGameOver(title, sub){
   Poki.gameplayStop();
+  CG.gameplayStop();
   const m = document.getElementById('gameover');
   document.getElementById('go-title').textContent = title || 'TIME ENDS';
   document.getElementById('go-sub').textContent = sub || 'REWIND AND TRY AGAIN';
@@ -3106,6 +3155,7 @@ function closeGameOver(){
 }
 function showMenu(){
   Poki.gameplayStop();
+  CG.gameplayStop();
   STATE = 'menu';
   closeGameOver();
   document.getElementById('menu').classList.remove('hidden');
@@ -3124,7 +3174,7 @@ function hideMenu(){
 
 function togglePause(){
   if (STATE === 'playing'){ STATE = 'paused'; openGameOver('PAUSED', 'BREATHE'); }
-  else if (STATE === 'paused'){ STATE = 'playing'; Poki.gameplayStart(); closeGameOver(); }
+  else if (STATE === 'paused'){ STATE = 'playing'; Poki.gameplayStart(); CG.gameplayStart(); closeGameOver(); }
 }
 
 /* ---- Wire up menu + modal + settings UI ---- */
@@ -3179,6 +3229,15 @@ shockwaves = []; debris = []; ragdolls = []; decoys = []; hitMarks = []; recordB
 zones = []; tethers = []; gravityWells = [];
 
 Poki.loadingFinished();
+// Defer CG.loadingStop the same way — must wait for SDK ready before firing,
+// otherwise the QA tool won't register the Loading Stop event.
+(function stopCG(retries = 20){
+  if (window.CrazyGames && window.CrazyGames.SDK && window.CrazyGames.SDK.game){
+    CG.loadingStop();
+  } else if (retries > 0){
+    setTimeout(() => stopCG(retries - 1), 50);
+  }
+})();
 requestAnimationFrame(loop);
 
 /* ============================ TOUCH CONTROLS ===============================
