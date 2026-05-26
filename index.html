@@ -267,9 +267,17 @@
    Core rule: time advances ONLY while the player is moving / aiming / acting.
    ========================================================================== */
 
-/* ============================ POKI SDK ==================================== */
-/* Safe wrapper: every call try/catch'd so the game still runs locally / on
-   GitHub Pages without the SDK loaded. */
+/* ============================ AD SDKs ====================================
+   The game ships with BOTH Poki SDK v2 and CrazyGames SDK v3 wired in. Each
+   call is try/catch'd so:
+     • on poki.com         → Poki SDK serves, CG SDK no-ops on its missing globals
+     • on crazygames.com   → CG SDK serves, Poki SDK no-ops on its missing globals
+     • on github.io / local→ both no-op, the game runs perfectly clean
+   The Lifecycle.* helpers fan one event out to both SDKs so we never have to
+   remember which host we're on at the call site.
+   ========================================================================== */
+
+/* ---- Poki SDK v2 safety wrapper ---- */
 const Poki = {
   loadingStart:    () => { try { PokiSDK.gameLoadingStart(); }    catch(_){} },
   loadingFinished: () => { try { PokiSDK.gameLoadingFinished(); } catch(_){} },
@@ -277,43 +285,76 @@ const Poki = {
   gameplayStop:    () => { try { PokiSDK.gameplayStop(); }        catch(_){} },
   commercialBreak: (cb) => { try { PokiSDK.commercialBreak().then(cb); } catch(_){ cb(); } }
 };
-Poki.loadingStart();
 
-/* ============================ CRAZYGAMES SDK ============================== */
-/* Safe wrapper: every call try/catch'd. CrazyGames SDK v3 self-detects whether
-   it is running on a CrazyGames domain; on other domains all calls throw, which
-   the try/catch swallows. Both SDKs coexist safely — each only activates on
-   its own platform. */
+/* ---- CrazyGames SDK v3 safety wrapper ---- */
+/* v3 is async-init: every gameplay/ad call must wait for SDK.init() to resolve
+   on crazygames.com. On other hosts the script is absent and `window.CrazyGames`
+   is undefined, so every method silently no-ops. Every non-init method is also
+   gated behind `CG.ready` so the SDK never logs "not initialized yet" warnings
+   to the console during the pre-init window. */
 const CG = {
-  init:          () => { try { window.CrazyGames.SDK.init(); } catch(_){} },
-  loadingStart:  () => { try { window.CrazyGames.SDK.game.loadingStart(); } catch(_){} },
-  loadingStop:   () => { try { window.CrazyGames.SDK.game.loadingStop(); } catch(_){} },
-  gameplayStart: () => { try { window.CrazyGames.SDK.game.gameplayStart(); } catch(_){} },
-  gameplayStop:  () => { try { window.CrazyGames.SDK.game.gameplayStop(); } catch(_){} },
-  requestAd: (cb) => {
+  ready: false,
+  inAd: false,
+  init: async () => {
     try {
-      const callbacks = {
-        adFinished: () => cb(),
-        adError:    () => cb(),
-        adStarted:  () => {}
-      };
-      window.CrazyGames.SDK.ad.requestAd('midgame', callbacks);
-    } catch(_){ cb(); }
+      if (window.CrazyGames && window.CrazyGames.SDK){
+        await window.CrazyGames.SDK.init();
+        CG.ready = true;
+        CG.loadingStop();              // CG.loadingStop() after init — per spec
+      }
+    } catch(_){ /* not on crazygames.com or init failed — stay no-op */ }
+  },
+  loadingStop:   () => { if (!CG.ready) return; try { window.CrazyGames.SDK.game.loadingStop();   } catch(_){} },
+  gameplayStart: () => { if (!CG.ready) return; try { window.CrazyGames.SDK.game.gameplayStart(); } catch(_){} },
+  gameplayStop:  () => { if (!CG.ready) return; try { window.CrazyGames.SDK.game.gameplayStop();  } catch(_){} },
+  /* requestAd: takes a single `done` callback we'll fire on EITHER adFinished
+     or adError so wave flow never softlocks if the ad fails / is blocked. */
+  requestAd: (type, done) => {
+    if (!CG.ready){ if (done) done(); return; }
+    let fired = false;
+    const finish = () => { if (fired) return; fired = true; CG.inAd = false;
+      try { if (AC && masterGain) masterGain.gain.setTargetAtTime(USER_VOL * 0.75, AC.currentTime, 0.12); } catch(_){}
+      if (done) done();
+    };
+    try {
+      CG.inAd = true;
+      window.CrazyGames.SDK.ad.requestAd(type || 'midgame', {
+        adStarted: () => {
+          try { if (AC && masterGain) masterGain.gain.setTargetAtTime(0, AC.currentTime, 0.05); } catch(_){}
+        },
+        adFinished: finish,
+        adError: finish
+      });
+      /* Safety net: if no callback ever fires (broken SDK / blocked iframe),
+         release the gate after 35s so the player isn't stuck on a black wave. */
+      setTimeout(finish, 35000);
+    } catch(_){
+      /* CG init succeeded but ad call still threw — just resolve and continue. */
+      CG.inAd = false; if (done) done();
+    }
   }
 };
-// Wait for CrazyGames SDK to actually be ready before calling it.
-// The SDK script tag loads synchronously, but the SDK takes a moment to
-// register itself on window.CrazyGames. Retry every 50ms for up to 1s
-// until it's there, then fire the loading hooks. Try/catch in the wrapper
-// still protects us on non-CrazyGames domains.
-(function initCG(retries = 20){
-  if (window.CrazyGames && window.CrazyGames.SDK && typeof window.CrazyGames.SDK.init === 'function'){
-    CG.init();
-    CG.loadingStart();
-  } else if (retries > 0){
-    setTimeout(() => initCG(retries - 1), 50);
+
+/* ---- Unified lifecycle dispatcher ----
+   Every game-state transition (start / pause / unpause / death / victory /
+   menu return) calls one of these so both SDKs stay in sync. */
+const Lifecycle = {
+  loadingStart:  () => { Poki.loadingStart(); /* CG: no pre-init call, SDK tracks from page-load */ },
+  loadingStop:   () => { Poki.loadingFinished(); CG.loadingStop();  },
+  gameplayStart: () => { Poki.gameplayStart();   CG.gameplayStart(); },
+  gameplayStop:  () => { Poki.gameplayStop();    CG.gameplayStop();  },
+  /* Midgame ad between waves. Tries CG first (v3), then Poki commercialBreak,
+     and finally calls `done`. On hosts where neither serves, this resolves
+     instantly through the no-op path so the next wave starts cleanly. */
+  midgameAd: (done) => {
+    CG.requestAd('midgame', () => { Poki.commercialBreak(done); });
   }
-})();
+};
+
+/* Kick off loading telemetry immediately for Poki; CG.init() is async and
+   will call CG.loadingStop() once it resolves on crazygames.com. */
+Lifecycle.loadingStart();
+CG.init();
 
 /* ============================ TOUCH FLAG =================================== */
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
@@ -559,24 +600,16 @@ const WAVES = [
 
 function startWave(idx){
   wave = idx; combo = 0; comboTimer = 0;
-  const W = WAVES[idx]; if (!W){ STATE='victory'; Poki.gameplayStop(); CG.gameplayStop(); victoryAnim = 0; showCenter('VICTORY', 'TIME IS YOURS', ''); return; }
-  // Commercial break between waves (never on wave 0, never on a victory)
+  const W = WAVES[idx]; if (!W){ STATE='victory'; Lifecycle.gameplayStop(); victoryAnim = 0; showCenter('VICTORY', 'TIME IS YOURS', ''); return; }
+  // Commercial break between waves (never on wave 0, never on a victory).
+  // Runs through Lifecycle.midgameAd → CrazyGames first, then Poki, then resume.
   if (idx > 0 && !window.__skipAd){
     window.__skipAd = true;
-    Poki.gameplayStop();
-    CG.gameplayStop();
-    // Both SDKs are safe to call — each only serves an ad on its own platform's
-    // domain; the other becomes a no-op. We chain them so we never play two ads.
-    const resumeWave = () => {
-      Poki.gameplayStart();
-      CG.gameplayStart();
+    Lifecycle.gameplayStop();
+    Lifecycle.midgameAd(() => {
+      Lifecycle.gameplayStart();
       startWave(idx);          // re-enters with __skipAd === true → falls through
       window.__skipAd = false; // reset for next wave transition
-    };
-    // Try Poki first; if not on Poki domain, the callback fires immediately and
-    // we then try CrazyGames; if not on CG either, callback fires and we resume.
-    Poki.commercialBreak(() => {
-      CG.requestAd(resumeWave);
     });
     return;
   }
@@ -1483,8 +1516,7 @@ function damagePlayer(amount=1){
   if (player.hp <= 0){
     player.alive = false; player.deathT = 0;
     STATE = 'dead';
-    Poki.gameplayStop();
-    CG.gameplayStop();
+    Lifecycle.gameplayStop();          // on death — both SDKs
     Snd.rewind();
     // Brief death poof — restrained particle burst
     const N = CALM_MODE ? 24 : 60;
@@ -3113,8 +3145,7 @@ function startGame(fromWave = 0){
   player = newPlayer();
   kills = 0; combo = 0; maxCombo = 0;
   STATE = 'playing';
-  Poki.gameplayStart();
-  CG.gameplayStart();
+  Lifecycle.gameplayStart();           // on game begin — both SDKs
   // Flush any latent input from the click that triggered this restart
   mouseDown = false; mouseFired = false;
   for (const k in keys) keys[k] = false;
@@ -3135,8 +3166,7 @@ function retryCurrentLevel(){ startGame(wave); }
    and audio stay alive (ragdolls settle, time-flow keeps drifting) — only
    STATE is set to 'dead' which blocks gameplay logic. */
 function openGameOver(title, sub){
-  Poki.gameplayStop();
-  CG.gameplayStop();
+  Lifecycle.gameplayStop();            // on game over / pause overlay — both SDKs
   const m = document.getElementById('gameover');
   document.getElementById('go-title').textContent = title || 'TIME ENDS';
   document.getElementById('go-sub').textContent = sub || 'REWIND AND TRY AGAIN';
@@ -3154,8 +3184,7 @@ function closeGameOver(){
   setTimeout(()=>{ m.style.display = 'none'; }, 280);
 }
 function showMenu(){
-  Poki.gameplayStop();
-  CG.gameplayStop();
+  Lifecycle.gameplayStop();            // on menu return — both SDKs
   STATE = 'menu';
   closeGameOver();
   document.getElementById('menu').classList.remove('hidden');
@@ -3174,7 +3203,7 @@ function hideMenu(){
 
 function togglePause(){
   if (STATE === 'playing'){ STATE = 'paused'; openGameOver('PAUSED', 'BREATHE'); }
-  else if (STATE === 'paused'){ STATE = 'playing'; Poki.gameplayStart(); CG.gameplayStart(); closeGameOver(); }
+  else if (STATE === 'paused'){ STATE = 'playing'; Lifecycle.gameplayStart(); closeGameOver(); } // on unpause — both SDKs
 }
 
 /* ---- Wire up menu + modal + settings UI ---- */
@@ -3228,16 +3257,9 @@ enemies = []; bullets = []; particles = [];
 shockwaves = []; debris = []; ragdolls = []; decoys = []; hitMarks = []; recordBuffer = []; echoes = [];
 zones = []; tethers = []; gravityWells = [];
 
-Poki.loadingFinished();
-// Defer CG.loadingStop the same way — must wait for SDK ready before firing,
-// otherwise the QA tool won't register the Loading Stop event.
-(function stopCG(retries = 20){
-  if (window.CrazyGames && window.CrazyGames.SDK && window.CrazyGames.SDK.game){
-    CG.loadingStop();
-  } else if (retries > 0){
-    setTimeout(() => stopCG(retries - 1), 50);
-  }
-})();
+/* Loading complete on both SDKs. CG.loadingStop() is also called inside
+   CG.init() after async init resolves — calling it again here is safe. */
+Lifecycle.loadingStop();
 requestAnimationFrame(loop);
 
 /* ============================ TOUCH CONTROLS ===============================
